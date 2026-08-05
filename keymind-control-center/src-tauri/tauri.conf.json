@@ -23,7 +23,12 @@
       "identifier": "com.keystroke.app",
       "icon": [
         "icons/icon.ico"
-      ]
+      ],
+      "windows": {
+        "webviewInstallMode": {
+          "type": "downloadBootstrapper"
+        }
+      }
     },
     "security": {
       "csp": null

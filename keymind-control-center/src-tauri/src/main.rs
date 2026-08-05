@@ -797,12 +797,40 @@ fn main() {
     let store_data = load_store();
 
     tauri::Builder::default()
-        .setup(|_app| {
+        .setup(|app| {
             #[cfg(target_os = "windows")]
             {
-                let (tx, _rx) = tokio::sync::mpsc::channel(32);
+                let (tx, mut rx) = tokio::sync::mpsc::channel(64);
                 std::thread::spawn(move || {
                     let _ = keymind_interceptor_windows::lifecycle::start_interceptor(tx);
+                });
+
+                let app_handle = app.handle();
+                tauri::async_runtime::spawn(async move {
+                    while let Some(event) = rx.recv().await {
+                        match event {
+                            keymind_interceptor_windows::Event::PaletteRequested => {
+                                let _ = open_palette_window(app_handle.clone());
+                            }
+                            keymind_interceptor_windows::Event::HotKeyTriggered(id) => {
+                                let shortcut_name = match id {
+                                    1 => "copilot_palette",
+                                    2 => "grammar_fix",
+                                    3 => "copilot_professional",
+                                    4 => "copilot_summarize",
+                                    5 => "ai_expand",
+                                    6 => "toggle_engine",
+                                    _ => "",
+                                };
+                                if shortcut_name == "copilot_palette" {
+                                    let _ = open_palette_window(app_handle.clone());
+                                } else if !shortcut_name.is_empty() {
+                                    let _ = handle_shortcut_trigger(shortcut_name.to_string()).await;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
                 });
             }
             Ok(())

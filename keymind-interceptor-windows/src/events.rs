@@ -25,6 +25,7 @@ pub enum Event {
     },
     EngineError(&'static str),
     PaletteRequested,
+    HotKeyTriggered(u32),
 }
 
 impl fmt::Display for Event {
@@ -40,6 +41,7 @@ impl fmt::Display for Event {
             }
             Event::EngineError(err) => write!(f, "Event::EngineError(\"{}\")", err),
             Event::PaletteRequested => write!(f, "Event::PaletteRequested"),
+            Event::HotKeyTriggered(id) => write!(f, "Event::HotKeyTriggered({})", id),
         }
     }
 }

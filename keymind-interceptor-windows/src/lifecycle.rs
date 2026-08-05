@@ -54,20 +54,20 @@ pub fn start_interceptor(sender: mpsc::Sender<Event>) -> HookHandle {
         #[cfg(target_os = "windows")]
         {
             use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-                RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, VK_SPACE,
+                RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, MOD_SHIFT, VK_SPACE,
             };
             use windows_sys::Win32::UI::WindowsAndMessaging::{
                 DispatchMessageW, GetMessageW, TranslateMessage, MSG, WM_HOTKEY,
             };
 
             unsafe {
-                // Register Ctrl+Alt+Space as global hotkey
-                RegisterHotKey(
-                    0,
-                    HOTKEY_ID_PALETTE,
-                    (MOD_CONTROL | MOD_ALT) as u32,
-                    VK_SPACE as u32,
-                );
+                // Register default global hotkeys
+                RegisterHotKey(0, 1, (MOD_CONTROL | MOD_ALT) as u32, VK_SPACE as u32);
+                RegisterHotKey(0, 2, (MOD_CONTROL | MOD_SHIFT) as u32, 0x47); // Ctrl+Shift+G (grammar)
+                RegisterHotKey(0, 3, (MOD_CONTROL | MOD_SHIFT) as u32, 0x50); // Ctrl+Shift+P (pro)
+                RegisterHotKey(0, 4, (MOD_CONTROL | MOD_SHIFT) as u32, 0x53); // Ctrl+Shift+S (summarize)
+                RegisterHotKey(0, 5, (MOD_CONTROL | MOD_SHIFT) as u32, 0x45); // Ctrl+Shift+E (expand)
+                RegisterHotKey(0, 6, (MOD_CONTROL | MOD_SHIFT) as u32, 0x4B); // Ctrl+Shift+K (toggle)
             }
 
             while is_running_clone.load(Ordering::SeqCst) {
@@ -78,8 +78,13 @@ pub fn start_interceptor(sender: mpsc::Sender<Event>) -> HookHandle {
                             break;
                         }
 
-                        if msg.message == WM_HOTKEY && msg.wParam == HOTKEY_ID_PALETTE as usize {
-                            let _ = sender.blocking_send(Event::PaletteRequested);
+                        if msg.message == WM_HOTKEY {
+                            let id = msg.wParam as u32;
+                            if id == 1 {
+                                let _ = sender.blocking_send(Event::PaletteRequested);
+                            } else {
+                                let _ = sender.blocking_send(Event::HotKeyTriggered(id));
+                            }
                         }
 
                         TranslateMessage(&msg);
@@ -89,7 +94,9 @@ pub fn start_interceptor(sender: mpsc::Sender<Event>) -> HookHandle {
             }
 
             unsafe {
-                UnregisterHotKey(0, HOTKEY_ID_PALETTE);
+                for id in 1..=6 {
+                    UnregisterHotKey(0, id);
+                }
             }
         }
 

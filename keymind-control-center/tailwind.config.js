@@ -7,19 +7,25 @@ export default {
   theme: {
     extend: {
       colors: {
-        claude: {
-          50: '#FDF8F5',
-          100: '#FAF0E8',
-          200: '#F4DBCB',
-          300: '#ECBA9E',
-          400: '#E2936F',
-          500: '#DA7756',
-          600: '#C86544',
-          700: '#A44F34',
-          800: '#84412E',
-          900: '#6E382A',
-        }
-      }
+        surface: "#FFFFFF",
+        surfaceRaised: "#F5F5F5",
+        borderSubtle: "#EBEBEB",
+        textPrimary: "#111111",
+        textSecondary: "#6B6B6B",
+        textTertiary: "#AAAAAA",
+        calloutBg: "#FAFAE8",
+        toggleOn: "#22C55E",
+        toggleOff: "#D1D5DB",
+        destructive: "#EF4444",
+        statusGreen: "#22C55E",
+        statusAmber: "#F59E0B",
+        statusRed: "#EF4444",
+      },
+      fontFamily: {
+        sans: ["Inter", "-apple-system", "BlinkMacSystemFont", "sans-serif"],
+        serif: ["Georgia", "serif"],
+        mono: ["JetBrains Mono", "monospace"],
+      },
     },
   },
   plugins: [],

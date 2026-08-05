@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { Sidebar, TabType } from "./components/Sidebar";
 import { DashboardTab } from "./components/DashboardTab";
+import { MemoryTab } from "./components/MemoryTab";
 import { VariablesTab } from "./components/VariablesTab";
 import { GrammarTab } from "./components/GrammarTab";
-import { ShortcutsTab } from "./components/ShortcutsTab";
 import { AppsTab } from "./components/AppsTab";
-import { MemoryTab } from "./components/MemoryTab";
+import { ShortcutsTab } from "./components/ShortcutsTab";
 import { SettingsTab } from "./components/SettingsTab";
 import { FirstRunWizard } from "./components/FirstRunWizard";
 import { SuggestionWidget } from "./components/SuggestionWidget";
@@ -24,15 +24,12 @@ import { invoke } from "@tauri-apps/api/tauri";
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>("dashboard");
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
-  const [activePrediction, setActivePrediction] = useState<ActivePrediction | null>({
-    candidate_word: "you",
-    full_suggestions: ["you", "there"],
-    confidence: 0.85,
-    context: "how are",
-  });
 
-  // State initialization
+  const [activePrediction, setActivePrediction] = useState<ActivePrediction | null>(null);
+
+  // State initialization connected to backend
   const [engineStatus, setEngineStatus] = useState<EngineStatus>({
     engine: "running",
     ai: "connected",
@@ -40,97 +37,121 @@ export const App: React.FC = () => {
   });
 
   const [dailyStats, setDailyStats] = useState<DailyStats>({
-    words_typed: 4820,
-    corrections_made: 142,
-    variables_used: 28,
-    ai_requests: 12,
+    words_typed: 0,
+    corrections_made: 0,
+    variables_used: 0,
+    ai_requests: 0,
   });
 
-  const [feed, setFeed] = useState<AutocorrectFeedItem[]>([
-    { id: "1", original: "recieve", corrected: "receive", time_ago: "2 min ago" },
-    { id: "2", original: "teh", corrected: "the", time_ago: "5 min ago" },
-    { id: "3", original: "their", corrected: "there", time_ago: "12 min ago" },
-    { id: "4", original: "taht", corrected: "that", time_ago: "18 min ago" },
-  ]);
-
-  const [variables, setVariables] = useState<Variable[]>([
-    { key: "phone", var_type: "static", value: "+1-555-0199", description: "Mobile phone snippet", use_count: 14 },
-    { key: "date", var_type: "dynamic", description: "Current local formatted date", use_count: 8 },
-    { key: "leave", var_type: "ai", ai_prompt: "Draft formal leave application letter...", use_count: 3 },
-  ]);
-
+  const [feed, setFeed] = useState<AutocorrectFeedItem[]>([]);
+  const [variables, setVariables] = useState<Variable[]>([]);
   const [grammarStatus, setGrammarStatus] = useState<GrammarStatus>({
     enabled: true,
     mode: "Aggressive",
     language: "en-US",
   });
 
-  const [grammarFixes, setGrammarFixes] = useState<GrammarFix[]>([
-    {
-      id: "f1",
-      original: "He are going to teh store.",
-      fixed: "He is going to the store.",
-      rule_id: "HE_ARE",
-      category: "GRAMMAR",
-      timestamp: "3 min ago",
-    },
-  ]);
+  const [grammarFixes, setGrammarFixes] = useState<GrammarFix[]>([]);
+  const [apps, setApps] = useState<AppSettings[]>([]);
 
-  const [apps, setApps] = useState<AppSettings[]>([
-    {
-      app_bundle_id: "com.apple.Safari",
-      app_name: "Safari",
-      autocorrect_enabled: true,
-      grammar_enabled: true,
-      ai_copilot_enabled: true,
-      is_blocked: false,
-    },
-    {
-      app_bundle_id: "com.microsoft.VSCode",
-      app_name: "Visual Studio Code",
-      autocorrect_enabled: false,
-      grammar_enabled: false,
-      ai_copilot_enabled: true,
-      is_blocked: false,
-    },
-    {
-      app_bundle_id: "com.slack.Slack",
-      app_name: "Slack",
-      autocorrect_enabled: true,
-      grammar_enabled: true,
-      ai_copilot_enabled: true,
-      is_blocked: false,
-    },
-  ]);
+  // Top-level loading and error state
+  const [isLoading, setIsLoading] = useState(true);
+  const [isError, setIsError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
 
-  // Handle Variable CRUD
+  const loadAllData = () => {
+    setIsLoading(true);
+    setIsError(false);
+    setErrorMessage("");
+
+    Promise.all([
+      invoke<EngineStatus>("get_engine_status").then((res) => setEngineStatus(res)),
+      invoke<DailyStats>("get_stats").then((res) => setDailyStats(res)),
+      invoke<GrammarFix[]>("get_recent_grammar_fixes").then((res) => {
+        setGrammarFixes(res || []);
+        if (res) {
+          setFeed(
+            res.map((f) => ({
+              id: f.id,
+              original: f.original,
+              corrected: f.fixed,
+              time_ago: f.timestamp,
+            }))
+          );
+        }
+      }),
+      invoke<Variable[]>("get_variables").then((res) => setVariables(res || [])),
+      invoke<GrammarStatus>("get_grammar_status").then((res) => setGrammarStatus(res)),
+      invoke<AppSettings[]>("get_app_settings").then((res) => setApps(res || [])),
+    ])
+      .catch((err) => {
+        console.error("Backend fetch error:", err);
+        setIsError(true);
+        setErrorMessage("Failed to connect to KeyMind engine daemon or fetch initial state.");
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
+  };
+
+  useEffect(() => {
+    loadAllData();
+  }, []);
+
+  // Variable CRUD
   const handleUpsertVariable = (v: Variable) => {
-    setVariables((prev) => {
-      const idx = prev.findIndex((item) => item.key === v.key);
-      if (idx >= 0) {
-        const updated = [...prev];
-        updated[idx] = v;
-        return updated;
-      }
-      return [...prev, v];
-    });
+    invoke("upsert_variable", { v })
+      .then(() => {
+        setVariables((prev) => {
+          const idx = prev.findIndex((item) => item.key === v.key);
+          if (idx >= 0) {
+            const updated = [...prev];
+            updated[idx] = v;
+            return updated;
+          }
+          return [...prev, v];
+        });
+      })
+      .catch((err) => console.error("upsert_variable error:", err));
   };
 
   const handleDeleteVariable = (key: string) => {
-    setVariables((prev) => prev.filter((v) => v.key !== key));
+    invoke("delete_variable", { key })
+      .then(() => {
+        setVariables((prev) => prev.filter((v) => v.key !== key));
+      })
+      .catch((err) => console.error("delete_variable error:", err));
   };
 
   const handleTestVariable = async (key: string): Promise<string> => {
-    if (key === "date") return new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-    if (key === "phone") return "+1-555-0199";
-    if (key === "leave") return "Dear Manager, Please accept this formal leave application...";
-    return "Resolved value sample";
+    try {
+      return await invoke<string>("test_variable", { key });
+    } catch (e) {
+      console.error("test_variable error:", e);
+      return "";
+    }
   };
 
   const handleUpdateApp = (updated: AppSettings) => {
-    setApps((prev) =>
-      prev.map((a) => (a.app_bundle_id === updated.app_bundle_id ? updated : a))
-    );
+    invoke("update_app_settings", { s: updated })
+      .then(() => {
+        setApps((prev) =>
+          prev.map((a) => (a.app_bundle_id === updated.app_bundle_id ? updated : a))
+        );
+      })
+      .catch((err) => console.error("update_app_settings error:", err));
+  };
+
+  const handleToggleGrammar = (enabled: boolean) => {
+    invoke("toggle_grammar", { enabled })
+      .then(() => setGrammarStatus((prev) => ({ ...prev, enabled })))
+      .catch((err) => console.error("toggle_grammar error:", err));
+  };
+
+  const handleModeChange = (mode: GrammarMode) => {
+    invoke("set_grammar_mode", { mode })
+      .then(() => setGrammarStatus((prev) => ({ ...prev, mode })))
+      .catch((err) => console.error("set_grammar_mode error:", err));
   };
 
   const handleAcceptPrediction = async (word: string) => {
@@ -163,7 +184,8 @@ export const App: React.FC = () => {
   }, [activePrediction]);
 
   return (
-    <div className="flex h-screen bg-[#121215] bg-ambient-glow text-[#FAF8F5] overflow-hidden select-none relative font-['Plus_Jakarta_Sans',sans-serif]">
+    <div className="flex h-screen bg-[#FFFFFF] text-[#111111] overflow-hidden select-none relative font-sans">
+      {/* Onboarding Wizard if first run */}
       {showWizard && (
         <FirstRunWizard
           onComplete={() => setShowWizard(false)}
@@ -183,57 +205,93 @@ export const App: React.FC = () => {
         />
       )}
 
-      {/* Left Sidebar */}
+      {/* Fixed 200px Left Sidebar */}
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         engineRunning={engineStatus.engine === "running"}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
-      {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto p-10 relative z-10">
+      {/* Scrollable Right Content Area */}
+      <main className="flex-1 overflow-y-auto px-12 pt-10 pb-16 relative bg-[#FFFFFF]">
         {activeTab === "dashboard" && (
-          <DashboardTab status={engineStatus} stats={dailyStats} feed={feed} />
+          <DashboardTab
+            status={engineStatus}
+            stats={dailyStats}
+            feed={feed}
+            isLoading={isLoading}
+            isError={isError}
+            errorMessage={errorMessage}
+            onRetry={loadAllData}
+          />
         )}
+
+        {activeTab === "memory" && (
+          <MemoryTab
+            onAddWord={(word) => console.log("Add word:", word)}
+            onDeleteWord={(id) => console.log("Delete word:", id)}
+            isLoading={isLoading}
+            isError={isError}
+            errorMessage={errorMessage}
+            onRetry={loadAllData}
+          />
+        )}
+
         {activeTab === "variables" && (
           <VariablesTab
             variables={variables}
             onUpsert={handleUpsertVariable}
             onDelete={handleDeleteVariable}
             onTest={handleTestVariable}
+            isLoading={isLoading}
+            isError={isError}
+            errorMessage={errorMessage}
+            onRetry={loadAllData}
           />
         )}
+
         {activeTab === "grammar" && (
           <GrammarTab
             status={grammarStatus}
             fixes={grammarFixes}
-            onToggle={(enabled) =>
-              setGrammarStatus((prev) => ({ ...prev, enabled }))
-            }
-            onModeChange={(mode: GrammarMode) =>
-              setGrammarStatus((prev) => ({ ...prev, mode }))
-            }
+            onToggle={handleToggleGrammar}
+            onModeChange={handleModeChange}
+            isLoading={isLoading}
+            isError={isError}
+            errorMessage={errorMessage}
+            onRetry={loadAllData}
           />
         )}
-        {activeTab === "memory" && (
-          <MemoryTab
-            onPinPhrase={(id) => console.log("Pin phrase", id)}
-            onDeletePhrase={(id) => console.log("Delete phrase", id)}
-            onIgnorePhrase={(id) => console.log("Ignore phrase", id)}
-            onClearAllPhrases={() => console.log("Clear all phrases")}
-            onAddWord={(word) => console.log("Add word", word)}
-            onDeleteWord={(id) => console.log("Delete word", id)}
-            onToggleLearning={(enabled) => console.log("Toggle learning", enabled)}
-          />
-        )}
-        {activeTab === "shortcuts" && <ShortcutsTab />}
+
         {activeTab === "apps" && (
-          <AppsTab apps={apps} onUpdateApp={handleUpdateApp} />
+          <AppsTab
+            apps={apps}
+            onUpdateApp={handleUpdateApp}
+            isLoading={isLoading}
+            isError={isError}
+            errorMessage={errorMessage}
+            onRetry={loadAllData}
+          />
         )}
-        {activeTab === "settings" && <SettingsTab />}
+
+        {activeTab === "shortcuts" && (
+          <ShortcutsTab
+            isLoading={isLoading}
+            isError={isError}
+            errorMessage={errorMessage}
+            onRetry={loadAllData}
+          />
+        )}
       </main>
 
-      {/* Floating Gboard-style Suggestion Widget */}
+      {/* Settings Modal Overlay */}
+      <SettingsTab
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+      />
+
+      {/* Floating Next-Word Suggestion Pill */}
       <SuggestionWidget
         prediction={activePrediction}
         onAccept={handleAcceptPrediction}

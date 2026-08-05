@@ -1,13 +1,17 @@
 pub mod copilot;
 pub mod shortcuts;
 
-use copilot::{close_palette, copilot_accept, copilot_request, get_selected_text};
+use copilot::{
+    close_palette, copy_to_clipboard, copilot_accept, copilot_request, get_selected_text,
+    inject_text, open_palette_window, run_copilot_prompt,
+};
 use shortcuts::{
     accept_prediction_word, get_shortcuts_list, handle_shortcut_trigger, register_global_shortcuts,
     update_shortcut_binding, ShortcutManager,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
+use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EngineStatus {
@@ -61,9 +65,137 @@ pub struct AppSettings {
     pub is_blocked: bool,
 }
 
-struct AppState {
-    grammar_enabled: Mutex<bool>,
-    grammar_mode: Mutex<String>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LearnedPhraseItem {
+    pub id: String,
+    pub phrase: String,
+    pub frequency: i32,
+    pub is_pinned: bool,
+    pub app_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersonalWordItem {
+    pub id: String,
+    pub word: String,
+    pub date_added: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoreData {
+    pub variables: Vec<Variable>,
+    pub personal_words: Vec<PersonalWordItem>,
+    pub learned_phrases: Vec<LearnedPhraseItem>,
+    pub app_settings: Vec<AppSettings>,
+    pub grammar_status: GrammarStatus,
+    pub daily_stats: DailyStats,
+}
+
+impl Default for StoreData {
+    fn default() -> Self {
+        Self {
+            variables: vec![
+                Variable {
+                    key: "phone".to_string(),
+                    var_type: "static".to_string(),
+                    value: Some("+1-555-0199".to_string()),
+                    ai_prompt: None,
+                    description: Some("Mobile phone number".to_string()),
+                    use_count: 14,
+                },
+                Variable {
+                    key: "date".to_string(),
+                    var_type: "dynamic".to_string(),
+                    value: None,
+                    ai_prompt: None,
+                    description: Some("Formatted date".to_string()),
+                    use_count: 8,
+                },
+                Variable {
+                    key: "leave".to_string(),
+                    var_type: "ai".to_string(),
+                    value: None,
+                    ai_prompt: Some("Draft a leave application letter...".to_string()),
+                    description: Some("AI leave request".to_string()),
+                    use_count: 3,
+                },
+            ],
+            personal_words: vec![
+                PersonalWordItem {
+                    id: "w1".to_string(),
+                    word: "KeyMind".to_string(),
+                    date_added: "2026-08-01".to_string(),
+                },
+                PersonalWordItem {
+                    id: "w2".to_string(),
+                    word: "Tauri".to_string(),
+                    date_added: "2026-08-02".to_string(),
+                },
+            ],
+            learned_phrases: vec![],
+            app_settings: vec![
+                AppSettings {
+                    app_bundle_id: "com.microsoft.VSCode".to_string(),
+                    app_name: "VS Code".to_string(),
+                    autocorrect_enabled: true,
+                    grammar_enabled: true,
+                    ai_copilot_enabled: true,
+                    is_blocked: false,
+                },
+                AppSettings {
+                    app_bundle_id: "com.slack.Slack".to_string(),
+                    app_name: "Slack".to_string(),
+                    autocorrect_enabled: true,
+                    grammar_enabled: true,
+                    ai_copilot_enabled: true,
+                    is_blocked: false,
+                },
+            ],
+            grammar_status: GrammarStatus {
+                enabled: true,
+                mode: "Aggressive".to_string(),
+                language: "en-US".to_string(),
+            },
+            daily_stats: DailyStats {
+                words_typed: 0,
+                corrections_made: 0,
+                variables_used: 0,
+                ai_requests: 0,
+            },
+        }
+    }
+}
+
+fn get_store_path() -> Option<std::path::PathBuf> {
+    dirs_next::home_dir().map(|h| h.join(".config").join("keymind").join("store.json"))
+}
+
+fn load_store() -> StoreData {
+    if let Some(path) = get_store_path() {
+        if path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if let Ok(data) = serde_json::from_str::<StoreData>(&content) {
+                    return data;
+                }
+            }
+        }
+    }
+    StoreData::default()
+}
+
+fn save_store(store: &StoreData) {
+    if let Some(path) = get_store_path() {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Ok(json) = serde_json::to_string_pretty(store) {
+            let _ = std::fs::write(path, json);
+        }
+    }
+}
+
+pub struct AppState {
+    pub store: Mutex<StoreData>,
 }
 
 #[tauri::command]
@@ -76,125 +208,97 @@ fn get_engine_status() -> EngineStatus {
 }
 
 #[tauri::command]
-fn get_stats() -> DailyStats {
-    DailyStats {
-        words_typed: 4820,
-        corrections_made: 142,
-        variables_used: 28,
-        ai_requests: 12,
+fn get_stats(state: tauri::State<AppState>) -> DailyStats {
+    state.store.lock().unwrap().daily_stats.clone()
+}
+
+#[tauri::command]
+fn get_variables(state: tauri::State<AppState>) -> Vec<Variable> {
+    state.store.lock().unwrap().variables.clone()
+}
+
+#[tauri::command]
+fn upsert_variable(v: Variable, state: tauri::State<AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    let idx = store.variables.iter().position(|x| x.key == v.key);
+    if let Some(i) = idx {
+        store.variables[i] = v;
+    } else {
+        store.variables.push(v);
     }
-}
-
-#[tauri::command]
-fn get_variables() -> Vec<Variable> {
-    vec![
-        Variable {
-            key: "phone".to_string(),
-            var_type: "static".to_string(),
-            value: Some("+1-555-0199".to_string()),
-            ai_prompt: None,
-            description: Some("Mobile phone number".to_string()),
-            use_count: 14,
-        },
-        Variable {
-            key: "date".to_string(),
-            var_type: "dynamic".to_string(),
-            value: None,
-            ai_prompt: None,
-            description: Some("Formatted date".to_string()),
-            use_count: 8,
-        },
-        Variable {
-            key: "leave".to_string(),
-            var_type: "ai".to_string(),
-            value: None,
-            ai_prompt: Some("Draft a leave application letter...".to_string()),
-            description: Some("AI leave request".to_string()),
-            use_count: 3,
-        },
-    ]
-}
-
-#[tauri::command]
-fn upsert_variable(v: Variable) -> Result<(), String> {
-    println!("Upsert variable: {:?}", v);
+    save_store(&store);
     Ok(())
 }
 
 #[tauri::command]
-fn delete_variable(key: String) -> Result<(), String> {
-    println!("Delete variable: {}", key);
+fn delete_variable(key: String, state: tauri::State<AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    store.variables.retain(|v| v.key != key);
+    save_store(&store);
     Ok(())
 }
 
 #[tauri::command]
-fn test_variable(key: String) -> String {
+fn test_variable(key: String, state: tauri::State<AppState>) -> String {
+    let store = state.store.lock().unwrap();
+    if let Some(v) = store.variables.iter().find(|x| x.key.eq_ignore_ascii_case(&key)) {
+        if v.var_type == "static" {
+            return v.value.clone().unwrap_or_default();
+        } else if v.var_type == "dynamic" {
+            return chrono::Local::now().format("%B %d, %Y").to_string();
+        } else if v.var_type == "ai" {
+            return v.ai_prompt.clone().unwrap_or_else(|| "AI prompt output sample".to_string());
+        }
+    }
+
     match key.to_lowercase().as_str() {
-        "phone" => "+1-555-0199".to_string(),
         "date" => chrono::Local::now().format("%B %d, %Y").to_string(),
-        "leave" => "Dear Manager, Please accept this formal leave application...".to_string(),
+        "time" => chrono::Local::now().format("%H:%M:%S").to_string(),
         _ => format!("Resolved value for /{}", key),
     }
 }
 
 #[tauri::command]
 fn get_grammar_status(state: tauri::State<AppState>) -> GrammarStatus {
-    GrammarStatus {
-        enabled: *state.grammar_enabled.lock().unwrap(),
-        mode: state.grammar_mode.lock().unwrap().clone(),
-        language: "en-US".to_string(),
-    }
+    state.store.lock().unwrap().grammar_status.clone()
 }
 
 #[tauri::command]
 fn toggle_grammar(enabled: bool, state: tauri::State<AppState>) -> Result<(), String> {
-    *state.grammar_enabled.lock().unwrap() = enabled;
+    let mut store = state.store.lock().unwrap();
+    store.grammar_status.enabled = enabled;
+    save_store(&store);
     Ok(())
 }
 
 #[tauri::command]
 fn set_grammar_mode(mode: String, state: tauri::State<AppState>) -> Result<(), String> {
-    *state.grammar_mode.lock().unwrap() = mode;
+    let mut store = state.store.lock().unwrap();
+    store.grammar_status.mode = mode;
+    save_store(&store);
     Ok(())
 }
 
 #[tauri::command]
 fn get_recent_grammar_fixes() -> Vec<GrammarFix> {
-    vec![GrammarFix {
-        id: "fix_1".to_string(),
-        original: "He are going to teh store.".to_string(),
-        fixed: "He is going to the store.".to_string(),
-        rule_id: "HE_ARE".to_string(),
-        category: "GRAMMAR".to_string(),
-        timestamp: "2 min ago".to_string(),
-    }]
+    vec![]
 }
 
 #[tauri::command]
-fn get_app_settings() -> Vec<AppSettings> {
-    vec![
-        AppSettings {
-            app_bundle_id: "com.apple.Safari".to_string(),
-            app_name: "Safari".to_string(),
-            autocorrect_enabled: true,
-            grammar_enabled: true,
-            ai_copilot_enabled: true,
-            is_blocked: false,
-        },
-        AppSettings {
-            app_bundle_id: "com.microsoft.VSCode".to_string(),
-            app_name: "Visual Studio Code".to_string(),
-            autocorrect_enabled: false,
-            grammar_enabled: false,
-            ai_copilot_enabled: true,
-            is_blocked: false,
-        },
-    ]
+fn get_app_settings(state: tauri::State<AppState>) -> Vec<AppSettings> {
+    state.store.lock().unwrap().app_settings.clone()
 }
 
 #[tauri::command]
-fn update_app_settings(s: AppSettings) -> Result<(), String> {
-    println!("Updated app settings: {:?}", s);
+fn update_app_settings(s: AppSettings, state: tauri::State<AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    let idx = store.app_settings.iter().position(|x| x.app_bundle_id == s.app_bundle_id);
+    if let Some(i) = idx {
+        store.app_settings[i] = s;
+    } else {
+        store.app_settings.push(s);
+    }
+    save_store(&store);
     Ok(())
 }
 
@@ -321,6 +425,26 @@ fn install_launch_agent() -> Result<(), String> {
                 .status();
         }
     }
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(exe_path) = std::env::current_exe() {
+            let exe_str = exe_path.to_string_lossy().to_string();
+            let _ = std::process::Command::new("reg")
+                .args(&[
+                    "add",
+                    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                    "/v",
+                    "KeyMind",
+                    "/t",
+                    "REG_SZ",
+                    "/d",
+                    &format!("\"{}\"", exe_str),
+                    "/f",
+                ])
+                .status();
+        }
+    }
     Ok(())
 }
 
@@ -339,114 +463,94 @@ fn uninstall_launch_agent() -> Result<(), String> {
             }
         }
     }
-    Ok(())
-}
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct LearnedPhraseItem {
-    pub id: String,
-    pub phrase: String,
-    pub frequency: i32,
-    pub is_pinned: bool,
-    pub app_id: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PersonalWordItem {
-    pub id: String,
-    pub word: String,
-    pub date_added: String,
-}
-
-#[tauri::command]
-pub fn get_learned_phrases() -> Vec<LearnedPhraseItem> {
-    vec![
-        LearnedPhraseItem {
-            id: "1".to_string(),
-            phrase: "Quarterly financial results".to_string(),
-            frequency: 14,
-            is_pinned: false,
-            app_id: Some("Notes".to_string()),
-        },
-        LearnedPhraseItem {
-            id: "2".to_string(),
-            phrase: "Project status update".to_string(),
-            frequency: 8,
-            is_pinned: true,
-            app_id: Some("Slack".to_string()),
-        },
-        LearnedPhraseItem {
-            id: "3".to_string(),
-            phrase: "Please find attached document".to_string(),
-            frequency: 6,
-            is_pinned: false,
-            app_id: Some("Mail".to_string()),
-        },
-    ]
-}
-
-#[tauri::command]
-pub fn pin_learned_phrase(id: String) -> Result<(), String> {
-    info!("Pin phrase triggered for {}", id);
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("reg")
+            .args(&[
+                "delete",
+                "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                "/v",
+                "KeyMind",
+                "/f",
+            ])
+            .status();
+    }
     Ok(())
 }
 
 #[tauri::command]
-pub fn delete_learned_phrase(id: String) -> Result<(), String> {
-    info!("Delete phrase triggered for {}", id);
+fn get_learned_phrases(state: tauri::State<AppState>) -> Vec<LearnedPhraseItem> {
+    state.store.lock().unwrap().learned_phrases.clone()
+}
+
+#[tauri::command]
+fn pin_learned_phrase(id: String, state: tauri::State<AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    if let Some(p) = store.learned_phrases.iter_mut().find(|x| x.id == id) {
+        p.is_pinned = !p.is_pinned;
+    }
+    save_store(&store);
     Ok(())
 }
 
 #[tauri::command]
-pub fn clear_all_learned_phrases() -> Result<(), String> {
-    info!("Cleared all learned phrases.");
+fn delete_learned_phrase(id: String, state: tauri::State<AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    store.learned_phrases.retain(|x| x.id != id);
+    save_store(&store);
     Ok(())
 }
 
 #[tauri::command]
-pub fn get_personal_words() -> Vec<PersonalWordItem> {
-    vec![
-        PersonalWordItem {
-            id: "w1".to_string(),
-            word: "KeyMind".to_string(),
-            date_added: "2026-08-01".to_string(),
-        },
-        PersonalWordItem {
-            id: "w2".to_string(),
-            word: "Tauri".to_string(),
-            date_added: "2026-08-02".to_string(),
-        },
-        PersonalWordItem {
-            id: "w3".to_string(),
-            word: "SymSpell".to_string(),
-            date_added: "2026-08-03".to_string(),
-        },
-    ]
-}
-
-#[tauri::command]
-pub fn add_personal_word(word: String) -> Result<(), String> {
-    info!("Added personal word: {}", word);
+fn clear_all_learned_phrases(state: tauri::State<AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    store.learned_phrases.clear();
+    save_store(&store);
     Ok(())
 }
 
 #[tauri::command]
-pub fn delete_personal_word(id: String) -> Result<(), String> {
-    info!("Deleted personal word ID: {}", id);
+fn get_personal_words(state: tauri::State<AppState>) -> Vec<PersonalWordItem> {
+    state.store.lock().unwrap().personal_words.clone()
+}
+
+#[tauri::command]
+fn add_personal_word(word: String, state: tauri::State<AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    let clean = word.trim().to_string();
+    if !clean.is_empty() && !store.personal_words.iter().any(|w| w.word.eq_ignore_ascii_case(&clean)) {
+        let item = PersonalWordItem {
+            id: format!("w_{}", chrono::Utc::now().timestamp_millis()),
+            word: clean,
+            date_added: chrono::Local::now().format("%Y-%m-%d").to_string(),
+        };
+        store.personal_words.push(item);
+        save_store(&store);
+    }
     Ok(())
 }
 
 #[tauri::command]
-pub fn toggle_learning_enabled(enabled: bool) -> Result<(), String> {
+fn delete_personal_word(id: String, state: tauri::State<AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    store.personal_words.retain(|w| w.id != id && w.word != id);
+    save_store(&store);
+    Ok(())
+}
+
+#[tauri::command]
+fn toggle_learning_enabled(enabled: bool) -> Result<(), String> {
     info!("Toggled phrase learning to {}", enabled);
     Ok(())
 }
 
 fn main() {
+    let store_data = load_store();
+
     tauri::Builder::default()
         .manage(AppState {
-            grammar_enabled: Mutex::new(true),
-            grammar_mode: Mutex::new("Aggressive".to_string()),
+            store: Mutex::new(store_data),
         })
         .manage(ShortcutManager::new())
         .invoke_handler(tauri::generate_handler![
@@ -472,6 +576,10 @@ fn main() {
             copilot_request,
             copilot_accept,
             close_palette,
+            open_palette_window,
+            run_copilot_prompt,
+            inject_text,
+            copy_to_clipboard,
             register_global_shortcuts,
             get_shortcuts_list,
             update_shortcut_binding,

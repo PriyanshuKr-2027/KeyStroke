@@ -44,9 +44,8 @@ pub fn translate_vk_code(vk_code: u32, scan_code: u32) -> Option<char> {
     #[cfg(target_os = "windows")]
     {
         use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-            GetKeyboardLayout, GetKeyboardState, ToUnicodeEx,
+            GetKeyboardState, ToUnicode,
         };
-        use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
 
         unsafe {
             let mut key_state = [0u8; 256];
@@ -54,19 +53,14 @@ pub fn translate_vk_code(vk_code: u32, scan_code: u32) -> Option<char> {
                 return None;
             }
 
-            let hwnd = GetForegroundWindow();
-            let thread_id = GetWindowThreadProcessId(hwnd, std::ptr::null_mut());
-            let layout = GetKeyboardLayout(thread_id);
-
             let mut out_buf = [0u16; 4];
-            let res = ToUnicodeEx(
+            let res = ToUnicode(
                 vk_code,
                 scan_code,
                 key_state.as_ptr(),
                 out_buf.as_mut_ptr(),
                 4,
                 0,
-                layout,
             );
 
             if res > 0 {

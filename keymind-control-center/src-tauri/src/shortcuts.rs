@@ -1,7 +1,6 @@
 use arboard::Clipboard;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
-use tauri::Window;
 use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,6 +79,34 @@ pub fn get_shortcuts_list(state: tauri::State<ShortcutManager>) -> Vec<ShortcutC
     state.shortcuts.lock().unwrap().clone()
 }
 
+pub fn parse_shortcut_str(s: &str) -> (u32, u32) {
+    let mut mods: u32 = 0;
+    let mut vk: u32 = 0;
+
+    for part in s.split(&['+', ' '][..]) {
+        let p = part.trim();
+        if p.is_empty() {
+            continue;
+        }
+        match p.to_lowercase().as_str() {
+            "ctrl" | "control" => mods |= 0x0002,
+            "alt" | "option" => mods |= 0x0001,
+            "shift" => mods |= 0x0004,
+            "win" | "cmd" | "command" | "meta" => mods |= 0x0008,
+            "space" => vk = 0x20,
+            other => {
+                if let Some(ch) = other.chars().next() {
+                    if ch.is_ascii_alphanumeric() {
+                        vk = ch.to_ascii_uppercase() as u32;
+                    }
+                }
+            }
+        }
+    }
+
+    (mods, vk)
+}
+
 #[tauri::command]
 pub fn update_shortcut_binding(
     id: String,
@@ -88,7 +115,17 @@ pub fn update_shortcut_binding(
 ) -> Result<(), String> {
     let mut list = state.shortcuts.lock().unwrap();
     if let Some(sc) = list.iter_mut().find(|item| item.id == id) {
-        sc.current_binding = binding;
+        sc.current_binding = binding.clone();
+        info!("Updated shortcut '{}' to '{}'", id, binding);
+
+        if id == "copilot_palette" {
+            let (mods, vk) = parse_shortcut_str(&binding);
+            keymind_interceptor_windows::lifecycle::update_registered_hotkey(
+                keymind_interceptor_windows::lifecycle::HOTKEY_ID_PALETTE,
+                mods,
+                vk,
+            );
+        }
     }
     Ok(())
 }

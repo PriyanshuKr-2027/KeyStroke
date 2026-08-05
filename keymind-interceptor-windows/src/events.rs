@@ -24,6 +24,7 @@ pub enum Event {
         context: String,
     },
     EngineError(&'static str),
+    PaletteRequested,
 }
 
 impl fmt::Display for Event {
@@ -38,6 +39,7 @@ impl fmt::Display for Event {
                 write!(f, "Event::WordCompleted(word=\"{}\", context=\"{}\")", word, context)
             }
             Event::EngineError(err) => write!(f, "Event::EngineError(\"{}\")", err),
+            Event::PaletteRequested => write!(f, "Event::PaletteRequested"),
         }
     }
 }

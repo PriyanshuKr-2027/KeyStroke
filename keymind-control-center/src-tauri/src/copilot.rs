@@ -3,9 +3,8 @@ use futures_util::StreamExt;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use std::env;
-use std::sync::Arc;
 use tauri::Window;
-use tracing::{info, warn};
+use tracing::info;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct StreamPayload {
@@ -139,7 +138,7 @@ pub async fn copilot_request(window: Window, text: String, action: String) -> Re
         let mut backoff = 2u64;
         let mut provider_success = false;
 
-        for attempt in 0..2 {
+        for _attempt in 0..2 {
             let res = client
                 .post(*url)
                 .headers(headers.clone())
@@ -233,6 +232,113 @@ pub fn copilot_accept(window: Window, final_text: String) -> Result<(), String> 
 #[tauri::command]
 pub fn close_palette(window: Window) -> Result<(), String> {
     let _ = window.close();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn open_palette_window(app: tauri::AppHandle) -> Result<(), String> {
+    let context = keymind_palette::capture_context();
+    keymind_palette::open_palette(&app, context).await
+}
+
+#[tauri::command]
+pub async fn run_copilot_prompt(
+    prompt: String,
+    context_before: String,
+    context_after: String,
+) -> Result<String, String> {
+    let system_prompt = "You are a typing assistant embedded in a desktop productivity app called KeyMind.\n\
+                         The user is actively editing text in another application and has asked for your help.\n\n\
+                         Rules:\n\
+                         - Reply with ONLY the requested output. No preamble, no explanation, no quotes.\n\
+                         - If rewriting, output rewritten text only.\n\
+                         - If answering, answer directly and concisely.\n\
+                         - Match tone and style of context.\n\
+                         - Never add markdown headers or bold text unless context uses it.";
+
+    let formatted_input = if context_before.trim().is_empty() && context_after.trim().is_empty() {
+        prompt.clone()
+    } else {
+        format!(
+            "Context (text surrounding cursor):\n[...] {} [CURSOR] {} [...]\n\nTask: {}",
+            context_before.trim(),
+            context_after.trim(),
+            prompt.trim()
+        )
+    };
+
+    if let Some(home) = dirs_next::home_dir() {
+        let env_path = home.join(".config").join("keymind").join(".env");
+        let _ = dotenvy::from_path(env_path);
+    }
+
+    let groq_key = env::var("GROQ_API_KEY").unwrap_or_default();
+    let cerebras_key = env::var("CEREBRAS_API_KEY").unwrap_or_default();
+
+    if groq_key.trim().is_empty() && cerebras_key.trim().is_empty() {
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        return Ok(format!("Simulated result for: {}", prompt));
+    }
+
+    let client = reqwest::Client::new();
+    let mut providers: Vec<(&str, &str, &str)> = Vec::new();
+    if !groq_key.trim().is_empty() {
+        providers.push(("https://api.groq.com/openai/v1/chat/completions", &groq_key, "llama-3.3-70b-versatile"));
+    }
+    if !cerebras_key.trim().is_empty() {
+        providers.push(("https://api.cerebras.ai/v1/chat/completions", &cerebras_key, "llama3.1-8b"));
+    }
+
+    for (url, key, model) in providers {
+        let mut headers = HeaderMap::new();
+        if let Ok(val) = HeaderValue::from_str(&format!("Bearer {}", key)) {
+            headers.insert(AUTHORIZATION, val);
+        }
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+        let payload = GroqStreamRequest {
+            model: model.to_string(),
+            messages: vec![
+                GroqMessage {
+                    role: "system".to_string(),
+                    content: system_prompt.to_string(),
+                },
+                GroqMessage {
+                    role: "user".to_string(),
+                    content: formatted_input.clone(),
+                },
+            ],
+            max_tokens: 1000,
+            temperature: 0.3,
+            stream: false,
+        };
+
+        if let Ok(res) = client.post(url).headers(headers).json(&payload).send().await {
+            if res.status().is_success() {
+                if let Ok(json) = res.json::<serde_json::Value>().await {
+                    if let Some(content) = json["choices"][0]["message"]["content"].as_str() {
+                        return Ok(content.trim().to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    Err("AI processing failed on all configured providers.".to_string())
+}
+
+#[tauri::command]
+pub async fn inject_text(app: tauri::AppHandle, text: String) -> Result<(), String> {
+    let _ = keymind_palette::close_palette(&app);
+    keymind_palette::inject_text(&text)
+}
+
+#[tauri::command]
+pub async fn copy_to_clipboard(app: tauri::AppHandle, text: String) -> Result<(), String> {
+    let _ = keymind_palette::close_palette(&app);
+    if let Ok(mut cb) = Clipboard::new() {
+        cb.set_text(text).map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 

@@ -1,354 +1,246 @@
 import React, { useState } from "react";
 import { EngineStatus, DailyStats, AutocorrectFeedItem } from "../types";
-import {
-  Activity,
-  Cpu,
-  Bot,
-  CheckCheck,
-  Type,
-  Wand2,
-  FileCode,
-  Sparkles,
-  AlertTriangle,
-  X,
-  TrendingUp,
-  ShieldCheck,
-  Zap,
-  Play,
-  RotateCcw,
-} from "lucide-react";
+import { CalloutCard } from "./CalloutCard";
+import { TableRowSkeleton, StatCardSkeleton } from "./Skeleton";
+import { EmptyState } from "./EmptyState";
+import { ErrorState } from "./ErrorState";
+import { Activity } from "lucide-react";
 
 interface DashboardTabProps {
   status: EngineStatus;
   stats: DailyStats;
   feed: AutocorrectFeedItem[];
+  isLoading?: boolean;
+  isError?: boolean;
+  errorMessage?: string;
+  onRetry?: () => void;
 }
 
 export const DashboardTab: React.FC<DashboardTabProps> = ({
   status,
   stats,
   feed,
+  isLoading = false,
+  isError = false,
+  errorMessage = "",
+  onRetry,
 }) => {
-  const [rateLimitToast, setRateLimitToast] = useState<string | null>(null);
-  const [testInput, setTestInput] = useState("thank you for your");
-  const [testResult, setTestResult] = useState<string | null>(null);
-  const [isSimulating, setIsSimulating] = useState(false);
+  const [activityFeed, setActivityFeed] = useState<
+    (AutocorrectFeedItem & { app?: string; timestamp?: string })[]
+  >(feed);
 
-  const handleRunQuickTest = (type: "prediction" | "autocorrect" | "grammar") => {
-    setIsSimulating(true);
-    setTestResult(null);
+  React.useEffect(() => {
+    setActivityFeed(feed);
+  }, [feed]);
 
-    setTimeout(() => {
-      if (type === "prediction") {
-        setTestResult('Next-word prediction match: "support" (Confidence: 98%)');
-      } else if (type === "autocorrect") {
-        setTestResult('SymSpell typo fix: "recieve" → "receive" (Confidence: 99%)');
-      } else {
-        setTestResult('Grammar fix: "He are going" → "He is going" (Rule: SUBJECT_VERB_AGREEMENT)');
-      }
-      setIsSimulating(false);
-    }, 300);
+  const [sandboxText, setSandboxText] = useState("");
+  const [showCallout, setShowCallout] = useState(true);
+
+  const handleUndo = (id: string) => {
+    setActivityFeed((prev) => prev.filter((item) => item.id !== id));
   };
 
+  // Helper to render live corrections inline in the sandbox
+  const getRenderedSandboxContent = () => {
+    if (!sandboxText) return null;
+    let rendered = sandboxText;
+
+    const replacements: { target: string; replacement: string }[] = [
+      { target: "teh", replacement: "the" },
+      { target: "recieve", replacement: "receive" },
+      { target: "there books", replacement: "their books" },
+    ];
+
+    let foundMatch: { original: string; fix: string } | null = null;
+    for (const r of replacements) {
+      if (rendered.includes(r.target)) {
+        foundMatch = { original: r.target, fix: r.replacement };
+        break;
+      }
+    }
+
+    if (foundMatch) {
+      const parts = sandboxText.split(foundMatch.original);
+      return (
+        <div className="mt-2.5 p-3 bg-[#FFFFFF] border border-[#EBEBEB] rounded-[8px] text-[13px] font-mono text-[#111111] flex items-center justify-between">
+          <div>
+            <span>{parts[0]}</span>
+            <span className="text-[#EF4444] line-through bg-[#FEE2E2] px-1 py-0.5 rounded mr-1">
+              {foundMatch.original}
+            </span>
+            <span className="text-[#22C55E] bg-[#DCFCE7] px-1 py-0.5 rounded font-bold">
+              {foundMatch.fix}
+            </span>
+            <span>{parts.slice(1).join(foundMatch.original)}</span>
+          </div>
+          <span className="text-[11px] font-sans text-[#6B6B6B]">Auto-corrected live</span>
+        </div>
+      );
+    }
+
+    return null;
+  };
+
+  if (isError) {
+    return (
+      <div className="max-w-[760px] mx-auto pt-6 pb-10">
+        <ErrorState
+          title="Engine Status Unreachable"
+          message={errorMessage || "Unable to retrieve dashboard stats and engine status."}
+          onRetry={onRetry}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-8 animate-fade-in">
-      {/* Toast Alert */}
-      {rateLimitToast && (
-        <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex items-center justify-between text-amber-300 text-xs font-semibold shadow-xl backdrop-blur-xl animate-fade-in">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-amber-500/20 rounded-xl text-amber-400">
-              <AlertTriangle className="w-4 h-4" />
-            </div>
-            <span>{rateLimitToast}</span>
-          </div>
-          <button
-            onClick={() => setRateLimitToast(null)}
-            className="text-amber-400/60 hover:text-amber-300 p-1 hover:bg-amber-500/20 rounded-lg transition"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      {/* Header Banner */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-extrabold tracking-tight text-[#FAF8F5] flex items-center gap-2.5">
-            System Overview
-            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Optimal
-            </span>
-          </h2>
-          <p className="text-xs text-[#A1A0AB] mt-1">
-            Real-time keyboard event processing and local AI assistant status.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 px-3.5 py-2 bg-[#1B1A22]/80 border border-[#DA7756]/20 rounded-2xl text-xs font-semibold text-[#FAF8F5] shadow-sm">
-          <ShieldCheck className="w-4 h-4 text-[#DA7756]" />
-          <span>Local Engine Verified</span>
-        </div>
-      </div>
-
-      {/* Top Status Cards Grid */}
-      <div className="grid grid-cols-3 gap-5">
-        {/* Core Interceptor Card */}
-        <div className="glass-panel glass-panel-hover p-5 rounded-3xl flex items-center justify-between relative overflow-hidden group">
-          <div className="flex items-center gap-3.5">
-            <div className="p-3 bg-[#DA7756]/15 rounded-2xl text-[#DA7756] border border-[#DA7756]/20 group-hover:scale-105 transition-transform">
-              <Cpu className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-[#A1A0AB]">Core Interceptor</p>
-              <h4 className="text-base font-extrabold text-[#FAF8F5] capitalize mt-0.5">
-                {status.engine}
-              </h4>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-mono font-bold text-[#A1A0AB]">P99 &lt;1ms</span>
-            <span
-              className={`w-3 h-3 rounded-full ${
-                status.engine === "running"
-                  ? "bg-emerald-400 shadow-md shadow-emerald-400/50 animate-pulse"
-                  : "bg-rose-500"
-              }`}
-            />
-          </div>
-        </div>
-
-        {/* Dual AI Engine Card */}
-        <div className="glass-panel glass-panel-hover p-5 rounded-3xl flex items-center justify-between relative overflow-hidden group">
-          <div className="flex items-center gap-3.5">
-            <div className="p-3 bg-amber-500/15 rounded-2xl text-amber-400 border border-amber-500/20 group-hover:scale-105 transition-transform">
-              <Bot className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-[#A1A0AB]">AI Copilot Engine</p>
-              <h4 className="text-base font-extrabold text-[#FAF8F5] capitalize mt-0.5">
-                {status.ai}
-              </h4>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-[#DA7756]/20 text-[#DA7756] border border-[#DA7756]/30">
-              Groq + Cerebras
-            </span>
-            <span
-              className={`w-3 h-3 rounded-full ${
-                status.ai === "connected"
-                  ? "bg-emerald-400 shadow-md shadow-emerald-400/50"
-                  : "bg-rose-500"
-              }`}
-            />
-          </div>
-        </div>
-
-        {/* Grammar Engine Card */}
-        <div className="glass-panel glass-panel-hover p-5 rounded-3xl flex items-center justify-between relative overflow-hidden group">
-          <div className="flex items-center gap-3.5">
-            <div className="p-3 bg-emerald-500/15 rounded-2xl text-emerald-400 border border-emerald-500/20 group-hover:scale-105 transition-transform">
-              <CheckCheck className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-[#A1A0AB]">LanguageTool Grammar</p>
-              <h4 className="text-base font-extrabold text-[#FAF8F5] capitalize mt-0.5">
-                {status.grammar}
-              </h4>
-            </div>
-          </div>
-          <span
-            className={`w-3 h-3 rounded-full ${
-              status.grammar === "ready"
-                ? "bg-emerald-400 shadow-md shadow-emerald-400/50"
-                : status.grammar === "starting"
-                ? "bg-amber-400 animate-bounce"
-                : "bg-rose-500"
-            }`}
-          />
-        </div>
-      </div>
-
-      {/* Quick Interactive Engine Test Bar */}
-      <div className="glass-panel p-5 rounded-3xl space-y-3 border border-[#DA7756]/20">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs font-bold text-[#FAF8F5]">
-            <Zap className="w-4 h-4 text-[#DA7756]" />
-            <span>Interactive Engine Tester</span>
-          </div>
-          <span className="text-[10px] text-[#A1A0AB]">Test interception live</span>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <input
-            type="text"
-            value={testInput}
-            onChange={(e) => setTestInput(e.target.value)}
-            placeholder="Type sample text to simulate..."
-            className="flex-1 bg-[#121216] border border-white/10 rounded-2xl px-4 py-2.5 text-xs text-[#FAF8F5] font-mono focus:outline-none focus:ring-2 focus:ring-[#DA7756]/50"
-          />
-
-          <button
-            onClick={() => handleRunQuickTest("prediction")}
-            disabled={isSimulating}
-            className="px-3.5 py-2.5 bg-[#DA7756] hover:bg-[#C86544] text-white rounded-2xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer active:scale-95 shadow-md shadow-[#DA7756]/20"
-          >
-            <Play className="w-3.5 h-3.5 fill-white" /> Predict Next
-          </button>
-
-          <button
-            onClick={() => handleRunQuickTest("autocorrect")}
-            disabled={isSimulating}
-            className="px-3.5 py-2.5 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 border border-amber-500/30 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer active:scale-95"
-          >
-            <Wand2 className="w-3.5 h-3.5 text-amber-400" /> SymSpell Typo
-          </button>
-
-          <button
-            onClick={() => handleRunQuickTest("grammar")}
-            disabled={isSimulating}
-            className="px-3.5 py-2.5 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 border border-emerald-500/30 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer active:scale-95"
-          >
-            <CheckCheck className="w-3.5 h-3.5 text-emerald-400" /> Grammar
-          </button>
-        </div>
-
-        {testResult && (
-          <div className="p-3 bg-[#17161D] rounded-2xl border border-emerald-500/30 text-xs font-mono text-emerald-300 flex items-center justify-between animate-fade-in">
-            <span>{testResult}</span>
-            <button onClick={() => setTestResult(null)} className="text-[#A1A0AB] hover:text-white p-1">
-              <X className="w-3.5 h-3.5" />
-            </button>
+    <div className="space-y-7 animate-fade-in max-w-[760px] mx-auto pb-10">
+      {/* Top Greeting & Streak Stats Row */}
+      <div className="flex items-baseline justify-between border-b border-[#EBEBEB] pb-4">
+        <h1 className="font-sans text-[22px] font-semibold text-[#111111] tracking-tight">
+          Welcome back
+        </h1>
+        {isLoading ? (
+          <StatCardSkeleton />
+        ) : (
+          <div className="flex items-center gap-3 text-[13px] font-sans text-[#6B6B6B]">
+            <span>✦ {stats.words_typed} words</span>
+            <span className="text-[#AAAAAA]">|</span>
+            <span>⚡ {stats.corrections_made} corrections</span>
+            <span className="text-[#AAAAAA]">|</span>
+            <span>🤖 {stats.ai_requests} AI requests</span>
           </div>
         )}
       </div>
 
-      {/* Metrics Row */}
-      <div className="grid grid-cols-4 gap-5">
-        <div className="glass-panel glass-panel-hover p-5 rounded-3xl space-y-2">
-          <div className="flex items-center justify-between text-[#A1A0AB]">
-            <span className="text-xs font-bold uppercase tracking-wider">Words Typed</span>
-            <Type className="w-4 h-4 text-[#DA7756]" />
-          </div>
-          <div className="flex items-baseline justify-between">
-            <p className="text-3xl font-black tracking-tight text-[#FAF8F5] font-mono">
-              {stats.words_typed.toLocaleString()}
-            </p>
-            <span className="text-xs font-semibold text-emerald-400 flex items-center gap-0.5">
-              <TrendingUp className="w-3 h-3" /> +12%
+      {/* Callout Card — First Week Introduction */}
+      {showCallout && (
+        <CalloutCard
+          headline="KeyMind types the way you think."
+          body="Works in every app. Type /date, /email, or any trigger and KeyMind expands it instantly — with grammar fixes happening silently in the background."
+          chips={[
+            { trigger: "/date", arrow: "→", label: "August 5, 2026" },
+            { trigger: "teh", arrow: "→", label: "the" },
+            { trigger: "there", arrow: "→", label: "their" },
+          ]}
+          ctaLabel="See how it works"
+          onCtaClick={() => window.open("https://github.com", "_blank")}
+          onDismiss={() => setShowCallout(false)}
+        />
+      )}
+
+      {/* Engine Status Bar */}
+      <div>
+        <div className="text-[11px] font-sans font-semibold tracking-wider text-[#AAAAAA] uppercase mb-2.5">
+          ENGINE STATUS
+        </div>
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                status.engine === "running" ? "bg-[#22C55E]" : "bg-[#EF4444]"
+              }`}
+            />
+            <span className="text-[13px] font-sans text-[#6B6B6B]">
+              Keyboard interceptor {status.engine}
             </span>
           </div>
-        </div>
 
-        <div className="glass-panel glass-panel-hover p-5 rounded-3xl space-y-2">
-          <div className="flex items-center justify-between text-[#A1A0AB]">
-            <span className="text-xs font-bold uppercase tracking-wider">Autocorrects</span>
-            <Wand2 className="w-4 h-4 text-amber-400" />
-          </div>
-          <div className="flex items-baseline justify-between">
-            <p className="text-3xl font-black tracking-tight text-[#FAF8F5] font-mono">
-              {stats.corrections_made.toLocaleString()}
-            </p>
-            <span className="text-xs font-semibold text-emerald-400 flex items-center gap-0.5">
-              <TrendingUp className="w-3 h-3" /> +8%
+          <div className="flex items-center gap-2">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                status.grammar === "ready" ? "bg-[#22C55E]" : "bg-[#F59E0B]"
+              }`}
+            />
+            <span className="text-[13px] font-sans text-[#6B6B6B]">
+              Grammar server connected
             </span>
           </div>
-        </div>
 
-        <div className="glass-panel glass-panel-hover p-5 rounded-3xl space-y-2">
-          <div className="flex items-center justify-between text-[#A1A0AB]">
-            <span className="text-xs font-bold uppercase tracking-wider">Variables Used</span>
-            <FileCode className="w-4 h-4 text-sky-400" />
-          </div>
-          <div className="flex items-baseline justify-between">
-            <p className="text-3xl font-black tracking-tight text-[#FAF8F5] font-mono">
-              {stats.variables_used.toLocaleString()}
-            </p>
-            <span className="text-xs font-semibold text-[#71707C]">Today</span>
-          </div>
-        </div>
-
-        <div className="glass-panel glass-panel-hover p-5 rounded-3xl space-y-2">
-          <div className="flex items-center justify-between text-[#A1A0AB]">
-            <span className="text-xs font-bold uppercase tracking-wider">AI Prompts</span>
-            <Sparkles className="w-4 h-4 text-[#DA7756]" />
-          </div>
-          <div className="flex items-baseline justify-between">
-            <p className="text-3xl font-black tracking-tight text-[#FAF8F5] font-mono">
-              {stats.ai_requests.toLocaleString()}
-            </p>
-            <span className="text-xs font-semibold text-amber-400 flex items-center gap-1">
-              <Zap className="w-3 h-3" /> Fast
+          <div className="flex items-center gap-2">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                status.ai === "connected" ? "bg-[#22C55E]" : "bg-[#EF4444]"
+              }`}
+            />
+            <span className="text-[13px] font-sans text-[#6B6B6B]">
+              Groq API ready
             </span>
           </div>
         </div>
       </div>
 
-      {/* Bottom Row: Activity Feed & Grammar Summary */}
-      <div className="grid grid-cols-2 gap-6">
-        {/* Recent Autocorrect Feed */}
-        <div className="glass-panel p-6 rounded-3xl space-y-5">
-          <div className="flex items-center justify-between border-b border-[#DA7756]/15 pb-4">
-            <h3 className="text-sm font-bold text-[#FAF8F5] flex items-center gap-2.5">
-              <Activity className="w-4 h-4 text-[#DA7756]" />
-              Live Autocorrect Feed
-            </h3>
-            <span className="text-xs font-semibold text-[#A1A0AB]">Last 10 events</span>
-          </div>
+      <div className="border-t border-[#EBEBEB] my-4" />
 
-          <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
-            {feed.map((item) => (
+      {/* Today Activity Log */}
+      <div>
+        <div className="text-[12px] font-sans font-semibold tracking-wider text-[#AAAAAA] uppercase mb-3">
+          TODAY — AUGUST 5, 2026
+        </div>
+
+        {isLoading ? (
+          <TableRowSkeleton count={3} />
+        ) : activityFeed.length > 0 ? (
+          <div className="divide-y divide-[#EBEBEB] border-t border-b border-[#EBEBEB]">
+            {activityFeed.map((item) => (
               <div
                 key={item.id}
-                className="flex items-center justify-between p-3 rounded-2xl bg-[#17161D]/80 border border-[#DA7756]/15 hover:border-[#DA7756]/40 transition-all text-xs"
+                className="h-[48px] px-1 flex items-center justify-between hover:bg-[#FAFAFA] transition-colors group"
               >
-                <div className="flex items-center gap-2.5 font-mono">
-                  <span className="text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20 line-through">
-                    {item.original}
+                <div className="flex items-center gap-4 text-[14px]">
+                  <span className="font-sans text-[12px] text-[#6B6B6B] w-[54px]">
+                    {item.timestamp || item.time_ago}
                   </span>
-                  <span className="text-[#71707C]">→</span>
-                  <span className="text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 font-bold">
-                    {item.corrected}
-                  </span>
+
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[#111111]">{item.original}</span>
+                    <span className="text-[#AAAAAA]">→</span>
+                    <span className="font-sans text-[#6B6B6B]">{item.corrected}</span>
+                  </div>
+
+                  {item.app && (
+                    <span className="text-[13px] text-[#AAAAAA]">({item.app})</span>
+                  )}
                 </div>
-                <span className="text-[11px] font-medium text-[#71707C]">{item.time_ago}</span>
+
+                <button
+                  onClick={() => handleUndo(item.id)}
+                  className="text-[13px] font-sans text-[#6B6B6B] hover:text-[#111111] hover:underline cursor-pointer"
+                >
+                  Undo
+                </button>
               </div>
             ))}
           </div>
+        ) : (
+          <EmptyState
+            icon={Activity}
+            title="No corrections made today"
+            description="KeyMind is running silently in the background. Start typing in any app to see live autocorrect and grammar fixes recorded here."
+            actionLabel="Try Live Sandbox below"
+            onAction={() => {
+              const sandboxInput = document.querySelector<HTMLInputElement>("input[placeholder*='Try it:']");
+              sandboxInput?.focus();
+            }}
+          />
+        )}
+      </div>
+
+      {/* Interactive Engine Sandbox */}
+      <div className="pt-2">
+        <div className="text-[12px] font-sans font-semibold tracking-wider text-[#AAAAAA] uppercase mb-2">
+          LIVE ENGINE SANDBOX
         </div>
 
-        {/* Grammar Issue Summary */}
-        <div className="glass-panel p-6 rounded-3xl space-y-5">
-          <div className="flex items-center justify-between border-b border-[#DA7756]/15 pb-4">
-            <h3 className="text-sm font-bold text-[#FAF8F5] flex items-center gap-2.5">
-              <CheckCheck className="w-4 h-4 text-emerald-400" />
-              Grammar & Style Breakdown
-            </h3>
-            <span className="text-xs font-extrabold text-[#DA7756] px-2.5 py-1 rounded-full bg-[#DA7756]/20 border border-[#DA7756]/30">
-              18 Issues Resolved
-            </span>
-          </div>
+        <input
+          type="text"
+          value={sandboxText}
+          onChange={(e) => setSandboxText(e.target.value)}
+          placeholder="Try it: type something here to test KeyMind live..."
+          className="w-full h-[44px] px-4 bg-[#F5F5F5] text-[#111111] placeholder-[#AAAAAA] text-[14px] rounded-[12px] focus:outline-none focus:ring-1 focus:ring-[#111111] transition"
+        />
 
-          <div className="grid grid-cols-2 gap-4 pt-1">
-            <div className="p-4 bg-[#17161D]/80 border border-[#DA7756]/15 rounded-2xl hover:border-amber-500/30 transition">
-              <span className="text-xs font-semibold text-[#A1A0AB]">Typos Corrected</span>
-              <p className="text-2xl font-black text-amber-400 mt-1 font-mono">9</p>
-            </div>
-            <div className="p-4 bg-[#17161D]/80 border border-[#DA7756]/15 rounded-2xl hover:border-[#DA7756]/30 transition">
-              <span className="text-xs font-semibold text-[#A1A0AB]">Grammar Fixes</span>
-              <p className="text-2xl font-black text-[#DA7756] mt-1 font-mono">5</p>
-            </div>
-            <div className="p-4 bg-[#17161D]/80 border border-[#DA7756]/15 rounded-2xl hover:border-sky-500/30 transition">
-              <span className="text-xs font-semibold text-[#A1A0AB]">Punctuation</span>
-              <p className="text-2xl font-black text-sky-400 mt-1 font-mono">3</p>
-            </div>
-            <div className="p-4 bg-[#17161D]/80 border border-[#DA7756]/15 rounded-2xl hover:border-emerald-500/30 transition">
-              <span className="text-xs font-semibold text-[#A1A0AB]">Style Improvements</span>
-              <p className="text-2xl font-black text-emerald-400 mt-1 font-mono">1</p>
-            </div>
-          </div>
-        </div>
+        {getRenderedSandboxContent()}
       </div>
     </div>
   );

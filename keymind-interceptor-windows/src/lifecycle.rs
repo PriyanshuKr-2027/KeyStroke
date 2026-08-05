@@ -29,32 +29,73 @@ impl HookHandle {
     }
 }
 
-pub fn start_interceptor(_sender: mpsc::Sender<Event>) -> HookHandle {
+pub const HOTKEY_ID_PALETTE: i32 = 0x0001;
+
+pub fn update_registered_hotkey(id: i32, modifiers: u32, vk_code: u32) {
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey};
+        unsafe {
+            UnregisterHotKey(0, id);
+            RegisterHotKey(0, id, modifiers, vk_code);
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (id, modifiers, vk_code);
+    }
+}
+
+pub fn start_interceptor(sender: mpsc::Sender<Event>) -> HookHandle {
     let is_running = Arc::new(AtomicBool::new(true));
     let is_running_clone = is_running.clone();
 
     let thread_handle = thread::spawn(move || {
-        while is_running_clone.load(Ordering::SeqCst) {
-            #[cfg(target_os = "windows")]
-            {
-                use windows_sys::Win32::UI::WindowsAndMessaging::{
-                    DispatchMessageW, GetMessageW, TranslateMessage, MSG,
-                };
+        #[cfg(target_os = "windows")]
+        {
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+                RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, VK_SPACE,
+            };
+            use windows_sys::Win32::UI::WindowsAndMessaging::{
+                DispatchMessageW, GetMessageW, TranslateMessage, MSG, WM_HOTKEY,
+            };
 
+            unsafe {
+                // Register Ctrl+Alt+Space as global hotkey
+                RegisterHotKey(
+                    0,
+                    HOTKEY_ID_PALETTE,
+                    (MOD_CONTROL | MOD_ALT) as u32,
+                    VK_SPACE as u32,
+                );
+            }
+
+            while is_running_clone.load(Ordering::SeqCst) {
                 unsafe {
                     let mut msg: MSG = std::mem::zeroed();
                     while GetMessageW(&mut msg, 0, 0, 0) > 0 {
                         if !is_running_clone.load(Ordering::SeqCst) {
                             break;
                         }
+
+                        if msg.message == WM_HOTKEY && msg.wParam == HOTKEY_ID_PALETTE as usize {
+                            let _ = sender.blocking_send(Event::PaletteRequested);
+                        }
+
                         TranslateMessage(&msg);
                         DispatchMessageW(&msg);
                     }
                 }
             }
 
-            #[cfg(not(target_os = "windows"))]
-            {
+            unsafe {
+                UnregisterHotKey(0, HOTKEY_ID_PALETTE);
+            }
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            while is_running_clone.load(Ordering::SeqCst) {
                 thread::sleep(Duration::from_millis(100));
             }
         }

@@ -3,59 +3,47 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --surface: #FFFFFF;
+    --surface-raised: #F5F5F5;
+    --border: #EBEBEB;
+    --text-primary: #111111;
+    --text-secondary: #6B6B6B;
+    --text-tertiary: #AAAAAA;
+    --callout-bg: #FAFAE8;
+    --toggle-on: #22C55E;
+    --toggle-off: #D1D5DB;
+  }
+
   body {
-    background-color: #121215;
-    color: #FAF8F5;
-    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    background-color: var(--surface);
+    color: var(--text-primary);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
 }
 
-/* Claude Code & Whisper Flow Ambient Lighting Glow */
-.bg-ambient-glow {
-  background-image: 
-    radial-gradient(at 0% 0%, rgba(218, 119, 86, 0.14) 0px, transparent 55%),
-    radial-gradient(at 100% 0%, rgba(245, 158, 11, 0.10) 0px, transparent 50%),
-    radial-gradient(at 50% 100%, rgba(200, 101, 68, 0.08) 0px, transparent 50%);
-}
-
-/* Warm Glassmorphism Panel Style */
-.glass-panel {
-  background: rgba(25, 24, 30, 0.75);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid rgba(218, 119, 86, 0.14);
-}
-
-.glass-panel-hover {
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.glass-panel-hover:hover {
-  background: rgba(34, 32, 42, 0.85);
-  border-color: rgba(218, 119, 86, 0.40);
-  box-shadow: 0 10px 30px -10px rgba(218, 119, 86, 0.18);
-}
-
-/* Custom Scrollbar */
+/* Custom Scrollbar for Light Minimal UI */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(218, 119, 86, 0.25);
+  background: #E0E0E0;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(218, 119, 86, 0.50);
+  background: #C4C4C4;
 }
 
 /* Subtle Fade In Animation */
 @keyframes fadeIn {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(3px);
   }
   to {
     opacity: 1;
@@ -64,21 +52,21 @@
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: fadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-/* Pulsing Heartbeat Dot */
-@keyframes pulseGlow {
+/* Pulsing Key Capture Loop */
+@keyframes capturePulse {
   0%, 100% {
-    opacity: 1;
-    box-shadow: 0 0 10px rgba(16, 185, 129, 0.6);
+    border-color: #111111;
+    box-shadow: 0 0 0 2px rgba(17, 17, 17, 0.1);
   }
   50% {
-    opacity: 0.5;
-    box-shadow: 0 0 4px rgba(16, 185, 129, 0.2);
+    border-color: #6B6B6B;
+    box-shadow: 0 0 0 0px rgba(17, 17, 17, 0);
   }
 }
 
-.animate-pulse-glow {
-  animation: pulseGlow 2s infinite ease-in-out;
+.animate-capture-pulse {
+  animation: capturePulse 1.2s infinite ease-in-out;
 }

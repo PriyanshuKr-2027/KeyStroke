@@ -70,7 +70,15 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
 
             <div className="pt-3 space-y-3">
               <button
-                onClick={() => setGranted(true)}
+                onClick={async () => {
+                  setGranted(true);
+                  try {
+                    await invoke("open_accessibility_settings");
+                  } catch (e) {
+                    console.log("open_accessibility_settings error:", e);
+                  }
+                  setStep(2);
+                }}
                 className="px-5 py-2.5 bg-[#111111] text-[#FFFFFF] text-[14px] font-medium rounded-[8px] hover:bg-[#333333] transition cursor-pointer"
               >
                 Open Accessibility Settings
@@ -80,6 +88,17 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
                 <span className={`w-2 h-2 rounded-full ${granted ? "bg-[#22C55E]" : "bg-[#F59E0B]"}`} />
                 <span>{granted ? "Permission Granted" : "Waiting for permission"}</span>
               </div>
+
+              {granted && (
+                <div className="pt-2">
+                  <button
+                    onClick={() => setStep(2)}
+                    className="px-5 py-2.5 bg-[#22C55E] text-[#FFFFFF] text-[14px] font-medium rounded-[8px] hover:bg-[#16A34A] transition cursor-pointer"
+                  >
+                    Continue to AI Setup →
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}

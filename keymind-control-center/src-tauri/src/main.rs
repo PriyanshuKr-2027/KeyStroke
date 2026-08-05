@@ -283,6 +283,22 @@ fn check_accessibility_permission() -> bool {
     }
 }
 
+#[tauri::command]
+fn open_accessibility_settings() {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "start", "ms-settings:privacy-accessibility"])
+            .spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+            .spawn();
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AiKeysStatus {
     pub groq_valid: bool,
@@ -809,6 +825,7 @@ fn main() {
             get_app_settings,
             update_app_settings,
             check_accessibility_permission,
+            open_accessibility_settings,
             save_api_key,
             save_ai_provider_keys,
             get_ai_keys_status,

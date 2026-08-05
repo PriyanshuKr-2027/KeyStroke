@@ -87,7 +87,7 @@ export const App: React.FC = () => {
       .catch((err) => {
         console.error("Backend fetch error:", err);
         setIsError(true);
-        setErrorMessage("Failed to connect to KeyMind engine daemon or fetch initial state.");
+        setErrorMessage("Failed to connect to KeyStroke engine daemon or fetch initial state.");
       })
       .finally(() => {
         setIsLoading(false);

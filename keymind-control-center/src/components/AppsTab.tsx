@@ -52,7 +52,7 @@ export const AppsTab: React.FC<AppsTabProps> = ({
       {/* Callout Card */}
       {showCallout && (
         <CalloutCard
-          headline="KeyMind, everywhere — except where you say."
+          headline="KeyStroke, everywhere — except where you say."
           body="Disable features for specific apps. Block it entirely in password managers or banking apps."
           chips={[
             { label: "VS Code" },
@@ -214,7 +214,7 @@ export const AppsTab: React.FC<AppsTabProps> = ({
         <EmptyState
           icon={MonitorOff}
           title="No applications detected"
-          description="KeyMind automatically detects desktop applications as you switch between windows. Open any text application to configure custom rules."
+          description="KeyStroke automatically detects desktop applications as you switch between windows. Open any text application to configure custom rules."
           actionLabel="Refresh Applications"
           onAction={onRetry}
         />

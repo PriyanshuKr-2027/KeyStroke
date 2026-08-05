@@ -141,7 +141,7 @@ export const ShortcutsTab: React.FC<ShortcutsTabProps> = ({
       {showCallout && (
         <CalloutCard
           headline="One key combination. Instant action."
-          body="Press any shortcut below to trigger KeyMind instantly across any app. Click a row to record a new combination."
+          body="Press any shortcut below to trigger KeyStroke instantly across any app. Click a row to record a new combination."
           chips={[
             { label: "Ctrl+Alt+Space" },
             { label: "Ctrl+Alt+G" },

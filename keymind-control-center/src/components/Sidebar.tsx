@@ -45,7 +45,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Top Header Section — 60px tall, 24px padding */}
         <div className="h-[60px] px-6 flex items-center gap-2">
           <span className="font-sans font-semibold text-[15px] text-[#111111] tracking-tight">
-            KeyMind
+            KeyStroke
           </span>
           <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#F5F5F5] text-[#6B6B6B] border border-[#EBEBEB] uppercase tracking-wider">
             PRO

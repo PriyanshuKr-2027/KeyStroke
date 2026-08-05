@@ -167,7 +167,7 @@ impl Default for StoreData {
 }
 
 fn get_store_path() -> Option<std::path::PathBuf> {
-    dirs_next::home_dir().map(|h| h.join(".config").join("keymind").join("store.json"))
+    dirs_next::home_dir().map(|h| h.join(".config").join("keystroke").join("store.json"))
 }
 
 fn load_store() -> StoreData {
@@ -370,7 +370,7 @@ async fn save_ai_provider_keys(
 
     if groq_valid || cerebras_valid {
         if let Some(home) = dirs_next::home_dir() {
-            let config_dir = home.join(".config").join("keymind");
+            let config_dir = home.join(".config").join("keystroke");
             let _ = std::fs::create_dir_all(&config_dir);
             let env_path = config_dir.join(".env");
             let mut env_content = String::new();
@@ -393,7 +393,7 @@ async fn save_ai_provider_keys(
 #[tauri::command]
 fn get_ai_keys_status() -> AiKeysStatus {
     if let Some(home) = dirs_next::home_dir() {
-        let env_path = home.join(".config").join("keymind").join(".env");
+        let env_path = home.join(".config").join("keystroke").join(".env");
         let _ = dotenvy::from_path(env_path);
     }
 
@@ -413,7 +413,7 @@ fn install_launch_agent() -> Result<(), String> {
         if let Some(home) = dirs_next::home_dir() {
             let launch_agents_dir = home.join("Library").join("LaunchAgents");
             let _ = std::fs::create_dir_all(&launch_agents_dir);
-            let dest_plist = launch_agents_dir.join("com.keymind.engine.plist");
+            let dest_plist = launch_agents_dir.join("com.keystroke.engine.plist");
 
             let plist_content = include_str!("../../../distribution/com.keymind.engine.plist");
             std::fs::write(&dest_plist, plist_content).map_err(|e| e.to_string())?;
@@ -435,7 +435,7 @@ fn install_launch_agent() -> Result<(), String> {
                     "add",
                     "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
                     "/v",
-                    "KeyMind",
+                    "KeyStroke",
                     "/t",
                     "REG_SZ",
                     "/d",
@@ -453,7 +453,7 @@ fn uninstall_launch_agent() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         if let Some(home) = dirs_next::home_dir() {
-            let dest_plist = home.join("Library").join("LaunchAgents").join("com.keymind.engine.plist");
+            let dest_plist = home.join("Library").join("LaunchAgents").join("com.keystroke.engine.plist");
             if dest_plist.exists() {
                 let _ = std::process::Command::new("launchctl")
                     .arg("unload")
@@ -471,7 +471,7 @@ fn uninstall_launch_agent() -> Result<(), String> {
                 "delete",
                 "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
                 "/v",
-                "KeyMind",
+                "KeyStroke",
                 "/f",
             ])
             .status();

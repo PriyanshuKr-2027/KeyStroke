@@ -158,7 +158,7 @@ export const MemoryTab: React.FC<MemoryTabProps> = ({
       return {
         icon: User,
         title: "No personal words added yet",
-        description: "Add technical terms, code symbols, client names, or jargon to ensure KeyMind never flags them as typos.",
+        description: "Add technical terms, code symbols, client names, or jargon to ensure KeyStroke never flags them as typos.",
         actionLabel: "Add your first word",
       };
     }
@@ -166,14 +166,14 @@ export const MemoryTab: React.FC<MemoryTabProps> = ({
       return {
         icon: Users,
         title: "No shared team phrases yet",
-        description: "Shared dictionary entries sync across your team's KeyMind clients to enforce common spelling standards.",
+        description: "Shared dictionary entries sync across your team's KeyStroke clients to enforce common spelling standards.",
         actionLabel: "Add team phrase",
       };
     }
     return {
       icon: BookOpen,
       title: "Your dictionary is empty",
-      description: "KeyMind uses your custom dictionary alongside SymSpell. Add terms or abbreviations to get started.",
+      description: "KeyStroke uses your custom dictionary alongside SymSpell. Add terms or abbreviations to get started.",
       actionLabel: "Add new word",
     };
   };
@@ -224,8 +224,8 @@ export const MemoryTab: React.FC<MemoryTabProps> = ({
       {/* Feature Callout Card */}
       {showCallout && (
         <CalloutCard
-          headline="KeyMind learns the way you speak."
-          body="Add personal terms, technical jargon, client names, or abbreviations. KeyMind will never flag them as typos."
+          headline="KeyStroke learns the way you speak."
+          body="Add personal terms, technical jargon, client names, or abbreviations. KeyStroke will never flag them as typos."
           chips={[
             { label: "SymSpell" },
             { label: "SQLite" },

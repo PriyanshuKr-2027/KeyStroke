@@ -89,7 +89,7 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
       <div className="max-w-[760px] mx-auto pt-6 pb-10">
         <ErrorState
           title="Failed to load Snippets"
-          message={errorMessage || "Could not retrieve variables and snippets from KeyMind engine."}
+          message={errorMessage || "Could not retrieve variables and snippets from KeyStroke engine."}
           onRetry={onRetry}
         />
       </div>
@@ -177,7 +177,7 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
       {showCallout && (
         <CalloutCard
           headline="The stuff you shouldn't have to retype."
-          body="Save shortcuts for everything you type all the time — emails, dates, addresses, templates. Type the trigger and KeyMind expands it instantly."
+          body="Save shortcuts for everything you type all the time — emails, dates, addresses, templates. Type the trigger and KeyStroke expands it instantly."
           chips={[
             { trigger: "/email", arrow: "→", label: "alex@..." },
             { trigger: "/date", arrow: "→", label: "August 5, 2026" },

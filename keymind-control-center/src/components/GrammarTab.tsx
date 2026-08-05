@@ -246,7 +246,7 @@ export const GrammarTab: React.FC<GrammarTabProps> = ({
           <EmptyState
             icon={CheckCircle2}
             title="No recent corrections"
-            description="When KeyMind automatically fixes spelling mistakes, homophones, or grammar errors in other apps, they will be logged here."
+            description="When KeyStroke automatically fixes spelling mistakes, homophones, or grammar errors in other apps, they will be logged here."
           />
         )}
       </div>

@@ -191,7 +191,7 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
                   {
                     id: "autostart",
                     label: "Launch at login",
-                    subtitle: "Start KeyMind background daemon on startup",
+                    subtitle: "Start KeyStroke background daemon on startup",
                     type: "toggle",
                     checked: autostart,
                     onToggle: handleToggleAutostart,
@@ -362,7 +362,7 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
               </h2>
               <div className="p-4 bg-[#F5F5F5] rounded-[10px] space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-[14px] font-semibold text-[#111111]">KeyMind Pro Plan</span>
+                  <span className="text-[14px] font-semibold text-[#111111]">KeyStroke Pro Plan</span>
                   <span className="px-2.5 py-1 bg-[#111111] text-[#FFFFFF] text-[12px] font-medium rounded-[6px]">
                     ACTIVE
                   </span>

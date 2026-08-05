@@ -6,7 +6,7 @@
     "distDir": "../dist"
   },
   "package": {
-    "productName": "KeyMind Control Center",
+    "productName": "KeyStroke",
     "version": "0.1.0"
   },
   "tauri": {
@@ -20,7 +20,7 @@
     "bundle": {
       "active": true,
       "targets": "all",
-      "identifier": "com.keymind.controlcenter",
+      "identifier": "com.keystroke.app",
       "icon": [
         "icons/icon.ico"
       ]
@@ -30,7 +30,7 @@
     },
     "windows": [
       {
-        "title": "KeyMind Control Center",
+        "title": "KeyStroke Control Center",
         "width": 1080,
         "height": 720,
         "resizable": true,

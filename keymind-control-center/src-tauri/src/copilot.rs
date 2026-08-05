@@ -72,7 +72,7 @@ pub fn get_selected_text() -> String {
 #[tauri::command]
 pub async fn copilot_request(window: Window, text: String, action: String) -> Result<(), String> {
     if let Some(home) = dirs_next::home_dir() {
-        let env_path = home.join(".config").join("keymind").join(".env");
+        let env_path = home.join(".config").join("keystroke").join(".env");
         let _ = dotenvy::from_path(env_path);
     }
 
@@ -247,7 +247,7 @@ pub async fn run_copilot_prompt(
     context_before: String,
     context_after: String,
 ) -> Result<String, String> {
-    let system_prompt = "You are a typing assistant embedded in a desktop productivity app called KeyMind.\n\
+    let system_prompt = "You are a typing assistant embedded in a desktop productivity app called KeyStroke.\n\
                          The user is actively editing text in another application and has asked for your help.\n\n\
                          Rules:\n\
                          - Reply with ONLY the requested output. No preamble, no explanation, no quotes.\n\
@@ -268,7 +268,7 @@ pub async fn run_copilot_prompt(
     };
 
     if let Some(home) = dirs_next::home_dir() {
-        let env_path = home.join(".config").join("keymind").join(".env");
+        let env_path = home.join(".config").join("keystroke").join(".env");
         let _ = dotenvy::from_path(env_path);
     }
 

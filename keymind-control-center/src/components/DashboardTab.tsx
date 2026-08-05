@@ -116,8 +116,8 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
       {/* Callout Card — First Week Introduction */}
       {showCallout && (
         <CalloutCard
-          headline="KeyMind types the way you think."
-          body="Works in every app. Type /date, /email, or any trigger and KeyMind expands it instantly — with grammar fixes happening silently in the background."
+          headline="KeyStroke types the way you think."
+          body="Works in every app. Type /date, /email, or any trigger and KeyStroke expands it instantly — with grammar fixes happening silently in the background."
           chips={[
             { trigger: "/date", arrow: "→", label: "August 5, 2026" },
             { trigger: "teh", arrow: "→", label: "the" },
@@ -216,7 +216,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           <EmptyState
             icon={Activity}
             title="No corrections made today"
-            description="KeyMind is running silently in the background. Start typing in any app to see live autocorrect and grammar fixes recorded here."
+            description="KeyStroke is running silently in the background. Start typing in any app to see live autocorrect and grammar fixes recorded here."
             actionLabel="Try Live Sandbox below"
             onAction={() => {
               const sandboxInput = document.querySelector<HTMLInputElement>("input[placeholder*='Try it:']");
@@ -236,7 +236,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           type="text"
           value={sandboxText}
           onChange={(e) => setSandboxText(e.target.value)}
-          placeholder="Try it: type something here to test KeyMind live..."
+          placeholder="Try it: type something here to test KeyStroke live..."
           className="w-full h-[44px] px-4 bg-[#F5F5F5] text-[#111111] placeholder-[#AAAAAA] text-[14px] rounded-[12px] focus:outline-none focus:ring-1 focus:ring-[#111111] transition"
         />
 

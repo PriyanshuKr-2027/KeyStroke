@@ -48,10 +48,10 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
         {step === 1 && (
           <div className="space-y-5 animate-fade-in">
             <h1 className="text-[22px] font-semibold text-[#111111]">
-              KeyMind needs one permission to get started.
+              KeyStroke needs one permission to get started.
             </h1>
             <p className="text-[15px] text-[#6B6B6B] leading-relaxed">
-              To type intelligently across all your apps, KeyMind needs low-level keyboard access. This runs entirely on your device — nothing leaves your machine.
+              To type intelligently across all your apps, KeyStroke needs low-level keyboard access. This runs entirely on your device — nothing leaves your machine.
             </p>
 
             <div className="pt-3 space-y-3">
@@ -77,7 +77,7 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
               Connect your AI keys (optional).
             </h1>
             <p className="text-[15px] text-[#6B6B6B] leading-relaxed">
-              KeyMind uses Groq and Cerebras for AI-powered features — tone rewrites, /reply expansions, and the AI Copilot palette. You can skip this and add them later in Settings.
+              KeyStroke uses Groq and Cerebras for AI-powered features — tone rewrites, /reply expansions, and the AI Copilot palette. You can skip this and add them later in Settings.
             </p>
 
             <div className="space-y-3 text-left">

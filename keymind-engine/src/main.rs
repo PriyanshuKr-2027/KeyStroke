@@ -30,6 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let env_path = home.join(".config").join("keymind").join(".env");
         let _ = dotenvy::from_path(env_path);
     }
+    let _ = dotenvy::dotenv();
 
     // 2. Initialize SQLite Database
     let db_pool = Arc::new(init_db().await?);
@@ -38,9 +39,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 3. Instantiate Sub-Crates
     let autocorrect = Arc::new(AutocorrectEngine::new(db_pool.clone()));
     let variables = Arc::new(VariableEngine::new(db_pool.clone()));
-    let grammar = Arc::new(GrammarEngine::new(PathBuf::from(
+    let grammar = Arc::new(GrammarEngine::with_java_server(PathBuf::from(
         "app_resources/languagetool/languagetool-server.jar",
-    )));
+    ), 8081));
 
     let prediction = Arc::new(
         PredictionEngine::new(
@@ -52,7 +53,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 4. Start Learning Engine Worker
     let (learning_tx, learning_rx) = mpsc::channel(1000);
-    let _learning_task = LearningEngine::start(db_pool.clone(), learning_rx);
+    let learning_engine = LearningEngine::new(db_pool.clone());
+    let _learning_task = LearningEngine::start(learning_engine.enabled.clone(), db_pool.clone(), learning_engine.privacy.clone(), learning_rx);
 
     // 5. Initialize Typing Pipeline Controller
     let _pipeline = Arc::new(TypingPipeline::new(
@@ -63,9 +65,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         learning_tx,
     ));
 
-    // 6. Start IPC Server Daemon (/tmp/keymind.sock)
-    let _ipc_task = start_ipc_server(db_pool.clone(), "/tmp/keymind.sock").await?;
-    info!("KeyMind IPC Server daemon listening on /tmp/keymind.sock");
+    // 6. Start IPC Server Daemon
+    #[cfg(windows)]
+    let ipc_address = "127.0.0.1:9123";
+    #[cfg(not(windows))]
+    let ipc_address = "/tmp/keymind.sock";
+
+    let _ipc_task = start_ipc_server(db_pool.clone(), ipc_address, learning_engine.enabled.clone()).await?;
+    info!("KeyMind IPC Server daemon listening on {}", ipc_address);
 
     // 7. Start Windows / macOS Keyboard Interceptor
     #[cfg(target_os = "windows")]

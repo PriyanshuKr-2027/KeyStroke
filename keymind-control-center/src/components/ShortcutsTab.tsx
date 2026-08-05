@@ -94,10 +94,10 @@ export const ShortcutsTab: React.FC<ShortcutsTabProps> = ({
       if (e.altKey) parts.push("Alt");
       if (e.shiftKey) parts.push("Shift");
 
-      let keyName = e.key.toUpperCase();
+      let keyName = e.key.length === 1 ? e.key.toUpperCase() : e.key;
       if (keyName === " ") keyName = "Space";
 
-      if (!["CONTROL", "ALT", "SHIFT", "META"].includes(keyName)) {
+      if (!["Control", "Alt", "Shift", "Meta"].includes(keyName)) {
         parts.push(keyName);
         const combo = parts.join(" + ");
 
@@ -148,7 +148,9 @@ export const ShortcutsTab: React.FC<ShortcutsTabProps> = ({
             { label: "Ctrl+Alt+K" },
           ]}
           ctaLabel="Customize shortcuts"
-          onCtaClick={() => window.scrollTo({ top: 300, behavior: "smooth" })}
+          onCtaClick={() => {
+            try { window.scrollTo({ top: 300, behavior: "smooth" }) } catch (e) {}
+          }}
           onDismiss={() => setShowCallout(false)}
         />
       )}

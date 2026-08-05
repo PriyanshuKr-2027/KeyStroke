@@ -22,6 +22,10 @@ tracing = "0.1"
 dotenvy = "0.15"
 keymind-palette = { path = "../../keymind-palette" }
 keymind-interceptor-windows = { path = "../../keymind-interceptor-windows" }
+keymind-autocorrect = { path = "../../keymind-autocorrect" }
+keymind-grammar = { path = "../../keymind-grammar" }
+keymind-prediction = { path = "../../keymind-prediction" }
+windows = { version = "0.62.2", features = ["Win32_UI_Input_KeyboardAndMouse"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.23"

@@ -1,15 +1,17 @@
 use parking_lot::RwLock;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// In-memory cache for user learned corrections (Layer 1.5).
+#[derive(Clone)]
 pub struct LearnedCorrections {
-    corrections: RwLock<HashMap<String, String>>,
+    corrections: Arc<RwLock<HashMap<String, String>>>,
 }
 
 impl LearnedCorrections {
     pub fn new(initial_map: HashMap<String, String>) -> Self {
         Self {
-            corrections: RwLock::new(initial_map),
+            corrections: Arc::new(RwLock::new(initial_map)),
         }
     }
 

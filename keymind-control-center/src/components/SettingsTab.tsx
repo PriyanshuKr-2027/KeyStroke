@@ -28,9 +28,9 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
   const [cerebrasValid, setCerebrasValid] = useState(false);
   const [isTestingKeys, setIsTestingKeys] = useState(false);
 
-  const [firstName, setFirstName] = useState("Alex");
-  const [lastName, setLastName] = useState("Developer");
-  const email = "alex@company.com";
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
 
   useEffect(() => {
     if (isOpen) {
@@ -174,7 +174,10 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
                     subtitle: "Low volume click on replacement",
                     type: "toggle",
                     checked: soundFeedback,
-                    onToggle: setSoundFeedback,
+                    onToggle: (v) => {
+                      setSoundFeedback(v);
+                      invoke("update_system_setting", { key: "sound_feedback", value: v }).catch(console.error);
+                    },
                   },
                 ]}
               />
@@ -202,7 +205,10 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
                     subtitle: "Keep running silently in system tray",
                     type: "toggle",
                     checked: minimizeTray,
-                    onToggle: setMinimizeTray,
+                    onToggle: (v) => {
+                      setMinimizeTray(v);
+                      invoke("update_system_setting", { key: "minimize_tray", value: v }).catch(console.error);
+                    },
                   },
                   {
                     id: "taskbar",
@@ -210,7 +216,10 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
                     subtitle: "Display main window icon when active",
                     type: "toggle",
                     checked: showTaskbar,
-                    onToggle: setShowTaskbar,
+                    onToggle: (v) => {
+                      setShowTaskbar(v);
+                      invoke("update_system_setting", { key: "show_taskbar", value: v }).catch(console.error);
+                    },
                   },
                   {
                     id: "sound_pred",
@@ -218,7 +227,10 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
                     subtitle: "Audible click when suggestion appears",
                     type: "toggle",
                     checked: soundPrediction,
-                    onToggle: setSoundPrediction,
+                    onToggle: (v) => {
+                      setSoundPrediction(v);
+                      invoke("update_system_setting", { key: "sound_prediction", value: v }).catch(console.error);
+                    },
                   },
                 ]}
               />
@@ -342,11 +354,19 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
               </div>
 
               <div className="flex items-center justify-between pt-4 border-t border-[#EBEBEB]">
-                <button className="text-[#EF4444] text-[13px] font-medium cursor-pointer hover:underline">
+                <button
+                  onClick={async () => { if (window.confirm("Are you sure you want to delete all data? This cannot be undone.")) { await invoke("purge_database"); } }}
+                  className="text-[#EF4444] text-[13px] font-medium cursor-pointer hover:underline"
+                >
                   Delete account
                 </button>
                 <button
-                  onClick={onClose}
+                  onClick={async () => {
+                    try {
+                      await invoke("save_profile", { firstName, lastName, email });
+                      onClose();
+                    } catch (e) { console.error("Failed to save profile:", e); }
+                  }}
                   className="px-4 py-2 bg-[#111111] text-[#FFFFFF] text-[14px] font-medium rounded-[8px]"
                 >
                   Save changes
@@ -386,13 +406,32 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
               </div>
 
               <div className="space-y-2 pt-2">
-                <button className="w-full h-[40px] px-4 bg-[#F5F5F5] text-[#111111] text-[14px] font-medium rounded-[8px] text-left hover:bg-[#EBEBEB]">
+                <button
+                  onClick={async () => {
+                    try {
+                      const data = await invoke<string>("export_local_data");
+                      const blob = new Blob([data], { type: "application/json" });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = "keystroke_backup.json";
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    } catch (e) {
+                      console.error(e);
+                    }
+                  }}
+                  className="w-full h-[40px] px-4 bg-[#F5F5F5] text-[#111111] text-[14px] font-medium rounded-[8px] text-left hover:bg-[#EBEBEB]">
                   Export all local data
                 </button>
-                <button className="w-full h-[40px] px-4 bg-[#F5F5F5] text-[#EF4444] text-[14px] font-medium rounded-[8px] text-left hover:bg-[#FEE2E2]">
+                <button
+                  onClick={async () => { if (window.confirm("Clear all activity history?")) { await invoke("clear_activity_history"); } }}
+                  className="w-full h-[40px] px-4 bg-[#F5F5F5] text-[#EF4444] text-[14px] font-medium rounded-[8px] text-left hover:bg-[#FEE2E2]">
                   Clear activity history
                 </button>
-                <button className="w-full h-[40px] px-4 bg-[#FEE2E2] text-[#EF4444] text-[14px] font-semibold rounded-[8px] text-left hover:bg-[#FCA5A5]">
+                <button
+                  onClick={async () => { if (window.confirm("Purge entire database? This will reset everything.")) { await invoke("purge_database"); } }}
+                  className="w-full h-[40px] px-4 bg-[#FEE2E2] text-[#EF4444] text-[14px] font-semibold rounded-[8px] text-left hover:bg-[#FCA5A5]">
                   Purge database
                 </button>
               </div>

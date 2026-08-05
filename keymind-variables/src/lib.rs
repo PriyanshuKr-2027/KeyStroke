@@ -142,13 +142,19 @@ impl VariableEngine {
     /// Asynchronous resolution for AI variables via Groq client.
     pub async fn resolve_ai(&self, key: &str, clipboard: &str) -> Result<String, VariableError> {
         let key_clean = key.trim_start_matches('/').to_lowercase();
-        let prompt = get_default_ai_prompt(&key_clean)
-            .map(|s| s.to_string())
-            .or_else(|| {
-                // Check database for custom AI variable prompt
-                None
-            })
-            .ok_or_else(|| VariableError::NotFound(key.to_string()))?;
+        let prompt = match get_default_ai_prompt(&key_clean) {
+            Some(p) => p.to_string(),
+            None => {
+                sqlx::query_scalar::<_, Option<String>>("SELECT ai_prompt FROM variables WHERE key = ?")
+                    .bind(&key_clean)
+                    .fetch_optional(&*self.db_handler.pool)
+                    .await
+                    .ok()
+                    .flatten()
+                    .flatten()
+                    .ok_or_else(|| VariableError::NotFound(key.to_string()))?
+            }
+        };
 
         let response = self.ai_client.generate(&prompt, clipboard).await?;
         Ok(response)

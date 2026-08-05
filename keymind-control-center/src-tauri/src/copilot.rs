@@ -2,9 +2,32 @@ use arboard::Clipboard;
 use futures_util::StreamExt;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
-use std::env;
+use serde_json;
+use std::sync::OnceLock;
 use tauri::Window;
-use tracing::info;
+
+static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+fn get_client() -> &'static reqwest::Client {
+    CLIENT.get_or_init(|| reqwest::Client::new())
+}
+
+fn read_env_keys() -> (String, String) {
+    let env_path = dirs_next::home_dir()
+        .map(|h| h.join(".config").join("keystroke").join(".env"))
+        .unwrap_or_default();
+    let content = std::fs::read_to_string(&env_path).unwrap_or_default();
+    let mut groq = String::new();
+    let mut cerebras = String::new();
+    for line in content.lines() {
+        if let Some(val) = line.strip_prefix("GROQ_API_KEY=") {
+            groq = val.trim().to_string();
+        } else if let Some(val) = line.strip_prefix("CEREBRAS_API_KEY=") {
+            cerebras = val.trim().to_string();
+        }
+    }
+    (groq, cerebras)
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct StreamPayload {
@@ -66,18 +89,12 @@ pub fn get_system_prompt_for_action(action: &str) -> &'static str {
 pub fn get_selected_text() -> String {
     Clipboard::new()
         .and_then(|mut c| c.get_text())
-        .unwrap_or_else(|_| "Sample text for AI Copilot action...".to_string())
+        .unwrap_or_else(|_| "".to_string())
 }
 
 #[tauri::command]
 pub async fn copilot_request(window: Window, text: String, action: String) -> Result<(), String> {
-    if let Some(home) = dirs_next::home_dir() {
-        let env_path = home.join(".config").join("keystroke").join(".env");
-        let _ = dotenvy::from_path(env_path);
-    }
-
-    let groq_key = env::var("GROQ_API_KEY").unwrap_or_default();
-    let cerebras_key = env::var("CEREBRAS_API_KEY").unwrap_or_default();
+    let (groq_key, cerebras_key) = read_env_keys();
 
     let mut providers: Vec<(&str, &str, &str)> = Vec::new();
     if !groq_key.trim().is_empty() {
@@ -88,25 +105,15 @@ pub async fn copilot_request(window: Window, text: String, action: String) -> Re
     }
 
     if providers.is_empty() {
-        // Fallback simulated streaming for testing without live API keys
-        let mock_text = match action.as_str() {
-            "rewrite" => "The team meeting roadmap should be updated prior to discussion.",
-            "grammar" => "The project roadmap needs to be updated before the upcoming team meeting.",
-            "summarize" => "• Update roadmap\n• Review before team meeting",
-            _ => "This is a simulated AI Copilot response for testing.",
-        };
-
-        for word in mock_text.split_whitespace() {
-            let delta = format!("{} ", word);
-            let _ = window.emit("copilot_stream", StreamPayload { delta });
-            tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+        if let Err(e) = window.emit("copilot_error", serde_json::json!({
+            "message": "No API keys configured. Go to Settings → AI Providers to add your Groq or Cerebras key."
+        })) {
+            tracing::warn!("Emit error: {}", e);
         }
-
-        let _ = window.emit("copilot_done", DonePayload { final_text: mock_text.to_string() });
-        return Ok(());
+        return Err("No API keys configured. Add your API keys in Settings → AI Providers.".to_string());
     }
 
-    let client = reqwest::Client::new();
+    let client = get_client();
     let system_prompt = get_system_prompt_for_action(&action);
 
     let mut res_opt = None;
@@ -148,7 +155,9 @@ pub async fn copilot_request(window: Window, text: String, action: String) -> Re
 
             if let Ok(response) = res {
                 if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
-                    let _ = window.emit("rate_limit_warning", format!("AI Provider ({}) rate limited. Retrying...", url));
+                    if let Err(e) = window.emit("rate_limit_warning", format!("AI Provider ({}) rate limited. Retrying...", url)) {
+                        tracing::warn!("Emit error: {}", e);
+                    }
                     tokio::time::sleep(std::time::Duration::from_secs(backoff)).await;
                     backoff *= 2;
                     continue;
@@ -165,7 +174,9 @@ pub async fn copilot_request(window: Window, text: String, action: String) -> Re
         if provider_success {
             break;
         } else {
-            let _ = window.emit("rate_limit_warning", format!("Primary provider ({}) unavailable. Failing over to secondary provider...", url));
+            if let Err(e) = window.emit("rate_limit_warning", format!("Primary provider ({}) unavailable. Failing over to secondary provider...", url)) {
+                tracing::warn!("Emit error: {}", e);
+            }
         }
     }
 
@@ -173,35 +184,45 @@ pub async fn copilot_request(window: Window, text: String, action: String) -> Re
         Some(r) => r,
         None => {
             let fallback = "[AI unavailable — all configured providers rate-limited or offline]".to_string();
-            let _ = window.emit("copilot_stream", StreamPayload { delta: fallback.clone() });
-            let _ = window.emit("copilot_done", DonePayload { final_text: fallback });
+            if let Err(e) = window.emit("copilot_stream", StreamPayload { delta: fallback.clone() }) {
+                tracing::warn!("Emit error: {}", e);
+            }
+            if let Err(e) = window.emit("copilot_done", DonePayload { final_text: fallback }) {
+                tracing::warn!("Emit error: {}", e);
+            }
             return Ok(());
         }
     };
 
     let mut stream = res.bytes_stream();
     let mut full_text = String::new();
+    let mut buffer = Vec::new();
 
     while let Some(chunk_res) = stream.next().await {
         if let Ok(bytes) = chunk_res {
-            let s = String::from_utf8_lossy(&bytes);
-            for line in s.lines() {
-                let line_trimmed = line.trim();
-                if line_trimmed.starts_with("data: ") {
-                    let data_json = line_trimmed.trim_start_matches("data: ");
-                    if data_json == "[DONE]" {
-                        break;
-                    }
-                    if let Ok(chunk) = serde_json::from_str::<GroqChunk>(data_json) {
-                        if let Some(choice) = chunk.choices.first() {
-                            if let Some(ref delta_content) = choice.delta.content {
-                                full_text.push_str(delta_content);
-                                let _ = window.emit(
-                                    "copilot_stream",
-                                    StreamPayload {
-                                        delta: delta_content.clone(),
-                                    },
-                                );
+            buffer.extend_from_slice(&bytes);
+            while let Some(pos) = buffer.iter().position(|&b| b == b'\n') {
+                let line = buffer.drain(..=pos).collect::<Vec<u8>>();
+                if let Ok(s) = String::from_utf8(line) {
+                    let line_trimmed = s.trim();
+                    if line_trimmed.starts_with("data: ") {
+                        let data_json = line_trimmed.trim_start_matches("data: ");
+                        if data_json == "[DONE]" {
+                            break;
+                        }
+                        if let Ok(chunk) = serde_json::from_str::<GroqChunk>(data_json) {
+                            if let Some(choice) = chunk.choices.first() {
+                                if let Some(ref delta_content) = choice.delta.content {
+                                    full_text.push_str(delta_content);
+                                    if let Err(e) = window.emit(
+                                        "copilot_stream",
+                                        StreamPayload {
+                                            delta: delta_content.clone(),
+                                        },
+                                    ) {
+                                        tracing::warn!("Emit error: {}", e);
+                                    }
+                                }
                             }
                         }
                     }
@@ -210,7 +231,9 @@ pub async fn copilot_request(window: Window, text: String, action: String) -> Re
         }
     }
 
-    let _ = window.emit("copilot_done", DonePayload { final_text: full_text });
+    if let Err(e) = window.emit("copilot_done", DonePayload { final_text: full_text }) {
+        tracing::warn!("Emit error: {}", e);
+    }
     Ok(())
 }
 
@@ -218,13 +241,23 @@ pub async fn copilot_request(window: Window, text: String, action: String) -> Re
 pub fn copilot_accept(window: Window, final_text: String) -> Result<(), String> {
     // 1. Write final text to clipboard
     if let Ok(mut cb) = Clipboard::new() {
-        let _ = cb.set_text(final_text);
+        if let Err(e) = cb.set_text(final_text) {
+            tracing::warn!("Failed to set clipboard text: {}", e);
+            return Err("Failed to write to clipboard".to_string());
+        }
+    } else {
+        tracing::warn!("Failed to access clipboard");
+        return Err("Failed to write to clipboard".to_string());
     }
 
-    // 2. Simulate paste in previously active app
+    // 2. Hide window and sleep slightly to restore focus to previously active app
+    let _ = window.hide();
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    // 3. Simulate paste in previously active app
     simulate_paste();
 
-    // 3. Close window
+    // 4. Close window
     let _ = window.close();
     Ok(())
 }
@@ -267,20 +300,13 @@ pub async fn run_copilot_prompt(
         )
     };
 
-    if let Some(home) = dirs_next::home_dir() {
-        let env_path = home.join(".config").join("keystroke").join(".env");
-        let _ = dotenvy::from_path(env_path);
-    }
-
-    let groq_key = env::var("GROQ_API_KEY").unwrap_or_default();
-    let cerebras_key = env::var("CEREBRAS_API_KEY").unwrap_or_default();
+    let (groq_key, cerebras_key) = read_env_keys();
 
     if groq_key.trim().is_empty() && cerebras_key.trim().is_empty() {
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-        return Ok(format!("Simulated result for: {}", prompt));
+        return Err("No API keys configured. Add your API keys in Settings → AI Providers.".to_string());
     }
 
-    let client = reqwest::Client::new();
+    let client = get_client();
     let mut providers: Vec<(&str, &str, &str)> = Vec::new();
     if !groq_key.trim().is_empty() {
         providers.push(("https://api.groq.com/openai/v1/chat/completions", &groq_key, "llama-3.3-70b-versatile"));
@@ -316,7 +342,11 @@ pub async fn run_copilot_prompt(
         if let Ok(res) = client.post(url).headers(headers).json(&payload).send().await {
             if res.status().is_success() {
                 if let Ok(json) = res.json::<serde_json::Value>().await {
-                    if let Some(content) = json["choices"][0]["message"]["content"].as_str() {
+                    if let Some(content) = json.get("choices")
+                        .and_then(|c| c.get(0))
+                        .and_then(|m| m.get("message"))
+                        .and_then(|msg| msg.get("content"))
+                        .and_then(|c| c.as_str()) {
                         return Ok(content.trim().to_string());
                     }
                 }
@@ -342,27 +372,76 @@ pub async fn copy_to_clipboard(app: tauri::AppHandle, text: String) -> Result<()
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
 fn simulate_paste() {
-    #[cfg(target_os = "macos")]
-    {
-        use core_graphics::event::{CGEvent, CGEventTapLocation};
-        use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+    use std::thread;
+    use std::time::Duration;
+    thread::sleep(Duration::from_millis(50));
+    unsafe {
+        use windows::Win32::UI::Input::KeyboardAndMouse::*;
+        let inputs = [
+            INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VIRTUAL_KEY(0x11), // VK_CONTROL
+                        ..Default::default()
+                    },
+                },
+            },
+            INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VIRTUAL_KEY(0x56), // VK_V
+                        ..Default::default()
+                    },
+                },
+            },
+            INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VIRTUAL_KEY(0x56),
+                        dwFlags: KEYEVENTF_KEYUP,
+                        ..Default::default()
+                    },
+                },
+            },
+            INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VIRTUAL_KEY(0x11),
+                        dwFlags: KEYEVENTF_KEYUP,
+                        ..Default::default()
+                    },
+                },
+            },
+        ];
+        SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+    }
+}
 
-        const VK_V: u16 = 9;
-        if let Ok(source) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) {
-            if let Ok(event_down) = CGEvent::new_keyboard_event(Some(source.clone()), VK_V, true) {
-                event_down.set_flags(core_graphics::event::CGEventFlags::CGEventFlagCommand);
-                event_down.post(CGEventTapLocation::HID);
-            }
-            if let Ok(event_up) = CGEvent::new_keyboard_event(Some(source), VK_V, false) {
-                event_up.set_flags(core_graphics::event::CGEventFlags::CGEventFlagCommand);
-                event_up.post(CGEventTapLocation::HID);
-            }
+#[cfg(target_os = "macos")]
+fn simulate_paste() {
+    use core_graphics::event::{CGEvent, CGEventTapLocation};
+    use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+
+    const VK_V: u16 = 9;
+    if let Ok(source) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) {
+        if let Ok(event_down) = CGEvent::new_keyboard_event(Some(source.clone()), VK_V, true) {
+            event_down.set_flags(core_graphics::event::CGEventFlags::CGEventFlagCommand);
+            event_down.post(CGEventTapLocation::HID);
+        }
+        if let Ok(event_up) = CGEvent::new_keyboard_event(Some(source), VK_V, false) {
+            event_up.set_flags(core_graphics::event::CGEventFlags::CGEventFlagCommand);
+            event_up.post(CGEventTapLocation::HID);
         }
     }
+}
 
-    #[cfg(not(target_os = "macos"))]
-    {
-        info!("[Copilot] Simulated Paste event");
-    }
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn simulate_paste() {
+    info!("[Copilot] Paste simulation not implemented for this platform");
 }

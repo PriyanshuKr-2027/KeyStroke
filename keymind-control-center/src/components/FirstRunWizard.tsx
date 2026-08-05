@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Check } from "lucide-react";
+import { invoke } from "@tauri-apps/api/tauri";
 
 interface FirstRunWizardProps {
   onComplete: () => void;
@@ -18,19 +19,32 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
   const [groqKey, setGroqKey] = useState("");
   const [cerebrasKey, setCerebrasKey] = useState("");
   const [preset, setPreset] = useState<"developer" | "executive" | "minimalist">("developer");
+  const timeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
   // Step 1: Auto-poll permission status
   useEffect(() => {
+    let isCancelled = false;
+
     if (step === 1 && !granted) {
-      const timer = setInterval(async () => {
+      const poll = async () => {
+        if (isCancelled) return;
         const ok = await onCheckAccessibility();
         if (ok) {
-          setGranted(true);
-          clearInterval(timer);
-          setTimeout(() => setStep(2), 800);
+          if (!isCancelled) {
+            setGranted(true);
+            timeoutRef.current = setTimeout(() => setStep(2), 800);
+          }
+        } else {
+          if (!isCancelled) {
+            timeoutRef.current = setTimeout(poll, 500);
+          }
         }
-      }, 500);
-      return () => clearInterval(timer);
+      };
+      poll();
+      return () => {
+        isCancelled = true;
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      };
     }
   }, [step, granted, onCheckAccessibility]);
 
@@ -171,7 +185,21 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
 
             <div className="flex justify-end pt-4">
               <button
-                onClick={onComplete}
+                onClick={async () => {
+                  try {
+                    if (groqKey || cerebrasKey) {
+                      await invoke("save_ai_provider_keys", {
+                        groqKey: groqKey || null,
+                        cerebrasKey: cerebrasKey || null,
+                      });
+                    }
+                    await invoke("set_typing_preset", { preset });
+                  } catch (e) {
+                    console.error("Failed to save wizard settings:", e);
+                    return;
+                  }
+                  onComplete();
+                }}
                 className="px-5 py-2.5 bg-[#111111] text-[#FFFFFF] text-[14px] font-medium rounded-[8px] hover:bg-[#333333] cursor-pointer"
               >
                 Finish setup →

@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/tauri";
 import { GrammarStatus, GrammarFix, GrammarMode } from "../types";
 import { SettingsRowGroup } from "./SettingsRowGroup";
 import { TableRowSkeleton } from "./Skeleton";
@@ -36,6 +37,26 @@ export const GrammarTab: React.FC<GrammarTabProps> = ({
   const [language, setLanguage] = useState(status.language || "English (US)");
 
   const [sandboxText, setSandboxText] = useState("");
+  const sensitivityTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (sensitivityTimeoutRef.current) {
+        clearTimeout(sensitivityTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Process grammar changes silently for now
+  useEffect(() => {
+    if (!sandboxText.trim()) return;
+    const timer = setTimeout(async () => {
+      try {
+        await invoke<{ original: string; fixed: string; issues: string[] }>("check_grammar_text", { text: sandboxText });
+      } catch (e) { console.error("Grammar check failed:", e); }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [sandboxText]);
 
   if (isError) {
     return (
@@ -132,7 +153,10 @@ export const GrammarTab: React.FC<GrammarTabProps> = ({
               subtitle: "Contextual disambiguation (there / their / they're)",
               type: "toggle",
               checked: homophone,
-              onToggle: setHomophone,
+              onToggle: (v) => {
+                setHomophone(v);
+                invoke("toggle_engine_component", { engine: "homophone", enabled: v }).catch(console.error);
+              },
             },
             {
               id: "languagetool",
@@ -140,7 +164,10 @@ export const GrammarTab: React.FC<GrammarTabProps> = ({
               subtitle: "Local rule evaluation engine",
               type: "toggle",
               checked: languageTool,
-              onToggle: setLanguageTool,
+              onToggle: (v) => {
+                setLanguageTool(v);
+                invoke("toggle_engine_component", { engine: "languagetool", enabled: v }).catch(console.error);
+              },
             },
             {
               id: "nextword",
@@ -148,7 +175,10 @@ export const GrammarTab: React.FC<GrammarTabProps> = ({
               subtitle: "Gboard-style inline suggestion chip",
               type: "toggle",
               checked: nextWord,
-              onToggle: setNextWord,
+              onToggle: (v) => {
+                setNextWord(v);
+                invoke("toggle_engine_component", { engine: "nextword", enabled: v }).catch(console.error);
+              },
             },
           ]}
         />
@@ -170,7 +200,14 @@ export const GrammarTab: React.FC<GrammarTabProps> = ({
             min="70"
             max="99"
             value={sensitivity}
-            onChange={(e) => setSensitivity(Number(e.target.value))}
+            onChange={(e) => {
+              const val = Number(e.target.value);
+              setSensitivity(val);
+              if (sensitivityTimeoutRef.current) clearTimeout(sensitivityTimeoutRef.current);
+              sensitivityTimeoutRef.current = setTimeout(() => {
+                invoke("set_grammar_sensitivity", { level: val }).catch(console.error);
+              }, 400);
+            }}
             className="w-full h-2 bg-[#D1D5DB] rounded-lg appearance-none cursor-pointer accent-[#111111]"
           />
         </div>
@@ -189,8 +226,11 @@ export const GrammarTab: React.FC<GrammarTabProps> = ({
               subtitle: language,
               type: "button",
               buttonLabel: "Change",
-              onButtonClick: () =>
-                setLanguage(language === "English (US)" ? "English (UK)" : "English (US)"),
+              onButtonClick: () => {
+                const newLang = language === "English (US)" ? "English (UK)" : "English (US)";
+                setLanguage(newLang);
+                invoke("set_grammar_language", { language: newLang }).catch(console.error);
+              },
             },
           ]}
         />
@@ -215,6 +255,7 @@ export const GrammarTab: React.FC<GrammarTabProps> = ({
         <div className="text-[12px] font-sans font-semibold tracking-wider text-[#AAAAAA] uppercase">
           RECENT CORRECTIONS LOG
         </div>
+        <div aria-live="polite">
         {isLoading ? (
           <TableRowSkeleton count={3} />
         ) : fixes.length > 0 ? (
@@ -249,6 +290,7 @@ export const GrammarTab: React.FC<GrammarTabProps> = ({
             description="When KeyStroke automatically fixes spelling mistakes, homophones, or grammar errors in other apps, they will be logged here."
           />
         )}
+        </div>
       </div>
     </div>
   );

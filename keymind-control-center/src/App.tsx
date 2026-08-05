@@ -9,6 +9,7 @@ import { ShortcutsTab } from "./components/ShortcutsTab";
 import { SettingsTab } from "./components/SettingsTab";
 import { FirstRunWizard } from "./components/FirstRunWizard";
 import { SuggestionWidget } from "./components/SuggestionWidget";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import {
   EngineStatus,
   DailyStats,
@@ -25,7 +26,14 @@ import { invoke } from "@tauri-apps/api/tauri";
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>("dashboard");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [showWizard, setShowWizard] = useState(false);
+  const [showWizard, setShowWizard] = useState(() => {
+    return localStorage.getItem("keystroke_onboarding_done") !== "true";
+  });
+
+  const handleWizardComplete = () => {
+    localStorage.setItem("keystroke_onboarding_done", "true");
+    setShowWizard(false);
+  };
 
   const [activePrediction, setActivePrediction] = useState<ActivePrediction | null>(null);
 
@@ -64,7 +72,7 @@ export const App: React.FC = () => {
     setIsError(false);
     setErrorMessage("");
 
-    Promise.all([
+    Promise.allSettled([
       invoke<EngineStatus>("get_engine_status").then((res) => setEngineStatus(res)),
       invoke<DailyStats>("get_stats").then((res) => setDailyStats(res)),
       invoke<GrammarFix[]>("get_recent_grammar_fixes").then((res) => {
@@ -84,10 +92,12 @@ export const App: React.FC = () => {
       invoke<GrammarStatus>("get_grammar_status").then((res) => setGrammarStatus(res)),
       invoke<AppSettings[]>("get_app_settings").then((res) => setApps(res || [])),
     ])
-      .catch((err) => {
-        console.error("Backend fetch error:", err);
-        setIsError(true);
-        setErrorMessage("Failed to connect to KeyStroke engine daemon or fetch initial state.");
+      .then((results) => {
+        const hasError = results.some((r) => r.status === "rejected");
+        if (hasError) {
+          setIsError(true);
+          setErrorMessage("Failed to load some components. The backend engine may be unreachable.");
+        }
       })
       .finally(() => {
         setIsLoading(false);
@@ -168,9 +178,9 @@ export const App: React.FC = () => {
   };
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!activePrediction) return;
+    if (!activePrediction) return;
 
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Tab") {
         e.preventDefault();
         handleAcceptPrediction(activePrediction.candidate_word);
@@ -188,7 +198,7 @@ export const App: React.FC = () => {
       {/* Onboarding Wizard if first run */}
       {showWizard && (
         <FirstRunWizard
-          onComplete={() => setShowWizard(false)}
+          onComplete={handleWizardComplete}
           onCheckAccessibility={async () => true}
           onSaveApiKey={async (key) => key.startsWith("gsk_") || key.length > 10}
           onSaveAiKeys={async (groqKey, cerebrasKey) => {
@@ -211,10 +221,12 @@ export const App: React.FC = () => {
         setActiveTab={setActiveTab}
         engineRunning={engineStatus.engine === "running"}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenWizard={() => setShowWizard(true)}
       />
 
       {/* Scrollable Right Content Area */}
-      <main className="flex-1 overflow-y-auto px-12 pt-10 pb-16 relative bg-[#FFFFFF]">
+      <ErrorBoundary>
+        <main className="flex-1 overflow-y-auto px-12 pt-10 pb-16 relative bg-[#FFFFFF]">
         {activeTab === "dashboard" && (
           <DashboardTab
             status={engineStatus}
@@ -229,8 +241,14 @@ export const App: React.FC = () => {
 
         {activeTab === "memory" && (
           <MemoryTab
-            onAddWord={(word) => console.log("Add word:", word)}
-            onDeleteWord={(id) => console.log("Delete word:", id)}
+            onAddWord={async (word) => {
+              try { await invoke("add_personal_word", { word }); loadAllData(); }
+              catch (e) { console.error("Failed to add word:", e); }
+            }}
+            onDeleteWord={async (id) => {
+              try { await invoke("delete_personal_word", { id }); loadAllData(); }
+              catch (e) { console.error("Failed to delete word:", e); }
+            }}
             isLoading={isLoading}
             isError={isError}
             errorMessage={errorMessage}
@@ -284,6 +302,7 @@ export const App: React.FC = () => {
           />
         )}
       </main>
+      </ErrorBoundary>
 
       {/* Settings Modal Overlay */}
       <SettingsTab

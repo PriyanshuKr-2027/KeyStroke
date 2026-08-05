@@ -123,7 +123,9 @@ impl AutocorrectEngine {
         let db_handler = DbHandler::new(Arc::clone(&self.db_handler.pool));
 
         tokio::spawn(async move {
-            let _ = db_handler.insert_personal_word(&word_owned).await;
+            if let Err(e) = db_handler.insert_personal_word(&word_owned).await {
+                tracing::error!("Failed to persist to database: {}", e);
+            }
         });
     }
 
@@ -132,12 +134,18 @@ impl AutocorrectEngine {
         let from_owned = from.to_string();
         let to_owned = to.to_string();
         let db_handler = DbHandler::new(Arc::clone(&self.db_handler.pool));
+        let learned_corrections = self.learned_corrections.clone();
 
         // We update in-memory after checking new count from DB or speculative increment
         tokio::spawn(async move {
-            if let Ok(count) = db_handler.record_correction(&from_owned, &to_owned).await {
-                if count >= 3 {
-                    // Update in memory state
+            match db_handler.record_correction(&from_owned, &to_owned).await {
+                Ok(count) => {
+                    if count >= 3 {
+                        learned_corrections.record(&from_owned, &to_owned, count);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to persist to database: {}", e);
                 }
             }
         });

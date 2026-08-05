@@ -76,7 +76,7 @@ pub fn register_global_shortcuts() -> Result<(), String> {
 
 #[tauri::command]
 pub fn get_shortcuts_list(state: tauri::State<ShortcutManager>) -> Vec<ShortcutConfig> {
-    state.shortcuts.lock().unwrap().clone()
+    state.shortcuts.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 pub fn parse_shortcut_str(s: &str) -> (u32, u32) {
@@ -113,46 +113,59 @@ pub fn update_shortcut_binding(
     binding: String,
     state: tauri::State<ShortcutManager>,
 ) -> Result<(), String> {
-    let mut list = state.shortcuts.lock().unwrap();
+    let mut list = state.shortcuts.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(sc) = list.iter_mut().find(|item| item.id == id) {
         sc.current_binding = binding.clone();
         info!("Updated shortcut '{}' to '{}'", id, binding);
 
-        if id == "copilot_palette" {
-            let (mods, vk) = parse_shortcut_str(&binding);
-            keymind_interceptor_windows::lifecycle::update_registered_hotkey(
-                keymind_interceptor_windows::lifecycle::HOTKEY_ID_PALETTE,
-                mods,
-                vk,
-            );
-        }
+        let (mods, vk) = parse_shortcut_str(&binding);
+        let numeric_id = match id.as_str() {
+            "copilot_palette" => 1,
+            "grammar_fix" => 2,
+            "copilot_professional" => 3,
+            "copilot_summarize" => 4,
+            "ai_expand" => 5,
+            "toggle_engine" => 6,
+            _ => 99,
+        };
+        keymind_interceptor_windows::lifecycle::update_registered_hotkey(
+            numeric_id,
+            mods,
+            vk,
+        );
     }
     Ok(())
 }
 
 #[tauri::command]
-pub fn handle_shortcut_trigger(id: String) -> Result<String, String> {
+pub async fn handle_shortcut_trigger(id: String) -> Result<String, String> {
     // 1. Simulate copy
     simulate_copy();
 
-    // 2. Read clipboard
-    let selection = Clipboard::new()
-        .and_then(|mut c| c.get_text())
-        .unwrap_or_else(|_| "".to_string());
+    tokio::time::sleep(std::time::Duration::from_millis(75)).await;
 
-    info!("Shortcut triggered: {} for selection len {}", id, selection.len());
-    Ok(selection)
+    // 2. Read clipboard
+    if let Ok(mut cb) = Clipboard::new() {
+        if let Ok(selection) = cb.get_text() {
+            info!("Shortcut triggered: {} for selection len {}", id, selection.len());
+            return Ok(selection);
+        }
+    }
+    
+    Err("Failed to read from clipboard".to_string())
 }
 
 #[tauri::command]
 pub fn accept_prediction_word(word: String) -> Result<(), String> {
     let text_to_insert = format!("{} ", word);
     if let Ok(mut cb) = Clipboard::new() {
-        let _ = cb.set_text(text_to_insert);
+        if cb.set_text(text_to_insert).is_ok() {
+            simulate_paste();
+            info!("[Prediction] Accepted next word: '{}'", word);
+            return Ok(());
+        }
     }
-    simulate_paste();
-    info!("[Prediction] Accepted next word: '{}'", word);
-    Ok(())
+    Err("Failed to write to clipboard".to_string())
 }
 
 fn simulate_paste() {
@@ -174,9 +187,9 @@ fn simulate_paste() {
         }
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
-        info!("[Prediction] Simulated Paste for accepted next word");
+        keymind_interceptor_windows::injector::TextInjector::new().simulate_paste();
     }
 }
 
@@ -199,8 +212,8 @@ fn simulate_copy() {
         }
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
-        info!("[Shortcut] Simulated Ctrl+C copy");
+        keymind_interceptor_windows::injector::TextInjector::new().simulate_copy();
     }
 }

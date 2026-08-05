@@ -21,6 +21,7 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
   variables,
   onUpsert,
   onDelete,
+  onTest,
   isLoading = false,
   isError = false,
   errorMessage = "",
@@ -80,6 +81,9 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
       use_count: editingVar ? editingVar.use_count : 0,
     };
 
+    if (editingVar && editingVar.key !== cleanKey) {
+      onDelete(editingVar.key);
+    }
     onUpsert(updatedVar);
     setIsModalOpen(false);
   };
@@ -231,6 +235,17 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
                 </div>
 
                 <div className="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={() => {
+                      onTest(v.key)
+                        .then((res) => alert(`Test Output:\n${res}`))
+                        .catch((err) => alert(`Error:\n${err}`));
+                    }}
+                    className="text-[#AAAAAA] hover:text-[#22C55E] p-1 cursor-pointer transition"
+                    title="Test snippet"
+                  >
+                    <Zap className="w-4 h-4" />
+                  </button>
                   <button
                     onClick={() => handleOpenEditModal(v)}
                     className="text-[#AAAAAA] hover:text-[#111111] p-1 cursor-pointer transition"

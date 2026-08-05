@@ -23,12 +23,14 @@ interface SidebarProps {
   setActiveTab: (tab: TabType) => void;
   engineRunning: boolean;
   onOpenSettings: () => void;
+  onOpenWizard?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   setActiveTab,
   onOpenSettings,
+  onOpenWizard,
 }) => {
   const navItems = [
     { id: "dashboard", label: "Home", icon: Home },
@@ -93,13 +95,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span>Settings</span>
         </button>
 
-        {/* Help Link */}
+        {/* Help / Setup Wizard */}
         <button
-          onClick={() => window.open("https://github.com", "_blank")}
+          onClick={() => (onOpenWizard ? onOpenWizard() : undefined)}
           className="w-full h-[40px] px-3 rounded-[6px] text-[14px] font-normal flex items-center gap-2.5 text-[#6B6B6B] hover:bg-[#F5F5F5] hover:text-[#111111] transition-colors cursor-pointer"
         >
           <HelpCircle className="w-[18px] h-[18px] text-[#6B6B6B]" strokeWidth={2} />
-          <span>Help</span>
+          <span>Setup Wizard</span>
         </button>
       </div>
     </aside>

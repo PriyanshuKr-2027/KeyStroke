@@ -1,4 +1,5 @@
 use sqlx::{Pool, Sqlite};
+use tracing::info;
 
 pub async fn init_trigram_table(db: &Pool<Sqlite>) -> Result<(), sqlx::Error> {
     sqlx::query(

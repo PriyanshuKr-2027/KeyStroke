@@ -56,7 +56,25 @@ impl SelectionFixer {
             }
         }
 
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "windows")]
+        {
+            use std::thread;
+            use std::time::Duration;
+            thread::sleep(Duration::from_millis(50));
+            unsafe {
+                use windows::Win32::UI::Input::KeyboardAndMouse::*;
+                let inputs = [
+                    INPUT { r#type: INPUT_KEYBOARD, Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: VIRTUAL_KEY(0x11), ..Default::default() } } },
+                    INPUT { r#type: INPUT_KEYBOARD, Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: VIRTUAL_KEY(0x43), ..Default::default() } } },
+                    INPUT { r#type: INPUT_KEYBOARD, Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: VIRTUAL_KEY(0x43), dwFlags: KEYEVENTF_KEYUP, ..Default::default() } } },
+                    INPUT { r#type: INPUT_KEYBOARD, Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: VIRTUAL_KEY(0x11), dwFlags: KEYEVENTF_KEYUP, ..Default::default() } } },
+                ];
+                SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         {
             info!("[Mock Shortcut] Simulated Ctrl+C copy");
         }
@@ -81,7 +99,24 @@ impl SelectionFixer {
             }
         }
 
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "windows")]
+        {
+            use std::thread;
+            use std::time::Duration;
+            thread::sleep(Duration::from_millis(50));
+            unsafe {
+                use windows::Win32::UI::Input::KeyboardAndMouse::*;
+                let inputs = [
+                    INPUT { r#type: INPUT_KEYBOARD, Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: VIRTUAL_KEY(0x11), ..Default::default() } } },
+                    INPUT { r#type: INPUT_KEYBOARD, Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: VIRTUAL_KEY(0x56), ..Default::default() } } },
+                    INPUT { r#type: INPUT_KEYBOARD, Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: VIRTUAL_KEY(0x56), dwFlags: KEYEVENTF_KEYUP, ..Default::default() } } },
+                    INPUT { r#type: INPUT_KEYBOARD, Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: VIRTUAL_KEY(0x11), dwFlags: KEYEVENTF_KEYUP, ..Default::default() } } },
+                ];
+                SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+            }
+        }
+
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         {
             info!("[Mock Shortcut] Simulated Ctrl+V paste");
         }

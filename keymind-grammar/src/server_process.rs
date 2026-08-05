@@ -26,7 +26,11 @@ impl ServerProcessManager {
     /// Spawns the Java LanguageTool process and waits for health check 200 OK up to 15 seconds.
     pub async fn start_server(&self) -> bool {
         if !self.jar_path.exists() {
-            warn!("LanguageTool JAR path does not exist: {:?}", self.jar_path);
+            tracing::warn!(
+                "LanguageTool JAR not found at {:?}. Grammar checking will be unavailable. \
+                 Download from https://languagetool.org/download/ and place the JAR at the expected path.",
+                self.jar_path
+            );
             return false;
         }
 

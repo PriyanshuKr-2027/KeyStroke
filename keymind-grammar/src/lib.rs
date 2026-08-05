@@ -131,18 +131,41 @@ impl GrammarEngine {
             ("language", if language.is_empty() { "en-US" } else { language }),
         ];
 
-        let req_future = self.client.post(&url).form(&params).send();
 
-        let resp_result = match timeout(Duration::from_millis(2000), req_future).await {
-            Ok(Ok(res)) => res,
-            Ok(Err(e)) => {
-                warn!("LanguageTool HTTP request failed: {}", e);
-                return Vec::new();
+        let attempt_future = async {
+            for attempt in 0..2 {
+                match timeout(Duration::from_millis(1000), self.client.post(&url).form(&params).send()).await {
+                    Ok(Ok(res)) => {
+                        return Some(res);
+                    }
+                    Ok(Err(e)) => {
+                        warn!("LanguageTool HTTP request failed (attempt {}): {}", attempt + 1, e);
+                        if attempt == 0 {
+                            tokio::time::sleep(Duration::from_millis(500)).await;
+                        }
+                    }
+                    Err(_) => {
+                        warn!("LanguageTool check_text request timed out after 1000ms (attempt {})", attempt + 1);
+                        if attempt == 0 {
+                            tokio::time::sleep(Duration::from_millis(500)).await;
+                        }
+                    }
+                }
             }
+            None
+        };
+
+        let resp_result = match timeout(Duration::from_millis(2000), attempt_future).await {
+            Ok(res) => res,
             Err(_) => {
-                warn!("LanguageTool check_text timed out after 2000ms");
-                return Vec::new();
+                warn!("LanguageTool total check_text timed out after 2000ms");
+                None
             }
+        };
+
+        let resp_result = match resp_result {
+            Some(r) => r,
+            None => return Vec::new(),
         };
 
         if !resp_result.status().is_success() {

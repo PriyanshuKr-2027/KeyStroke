@@ -51,15 +51,24 @@ impl TypingPipeline {
 
         // 2. Check variable resolution
         if word.starts_with('/') {
-            if let Ok(Some(replacement)) = self.variables.resolve_variable(word).await {
-                info!("Variable resolved: {} -> {}", word, replacement);
-                return;
+            match self.variables.resolve_static(word) {
+                Some(replacement) => {
+                    info!("Variable resolved: {} -> {}", word, replacement);
+                    return;
+                }
+                None => {
+                    // Try dynamic resolution
+                    if let Some(replacement) = keymind_variables::dynamic::DynamicResolver::resolve(word) {
+                        info!("Dynamic variable resolved: {} -> {}", word, replacement);
+                        return;
+                    }
+                }
             }
         }
 
         // 3. Autocorrect check
-        if let Some(correction) = self.autocorrect.correct_word(word, context) {
-            info!("Autocorrect applied: {} -> {}", word, correction);
+        if let Some(correction) = self.autocorrect.check(word, context) {
+            info!("Autocorrect applied: {} -> {}", word, correction.corrected);
             return;
         }
 

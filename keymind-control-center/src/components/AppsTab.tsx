@@ -61,7 +61,9 @@ export const AppsTab: React.FC<AppsTabProps> = ({
             { label: "Chrome" },
           ]}
           ctaLabel="Manage apps"
-          onCtaClick={() => window.scrollTo({ top: 300, behavior: "smooth" })}
+          onCtaClick={() => {
+            try { window.scrollTo({ top: 300, behavior: "smooth" }) } catch (e) {}
+          }}
           onDismiss={() => setShowCallout(false)}
         />
       )}

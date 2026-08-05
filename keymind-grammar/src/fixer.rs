@@ -1,5 +1,12 @@
 use crate::GrammarIssue;
 
+pub fn char_offset_to_byte_offset(text: &str, char_offset: usize) -> usize {
+    text.char_indices()
+        .nth(char_offset)
+        .map(|(byte_idx, _)| byte_idx)
+        .unwrap_or_else(|| text.len())
+}
+
 pub fn apply_text_fixes(text: &str, issues: &[GrammarIssue]) -> String {
     if issues.is_empty() {
         return text.to_string();
@@ -13,8 +20,8 @@ pub fn apply_text_fixes(text: &str, issues: &[GrammarIssue]) -> String {
 
     for issue in sorted_issues {
         if let Some(replacement) = issue.replacements.first() {
-            let start = issue.offset;
-            let end = start + issue.length;
+            let start = char_offset_to_byte_offset(&result, issue.offset);
+            let end = char_offset_to_byte_offset(&result, issue.offset + issue.length);
 
             if start <= result.len() && end <= result.len() {
                 // Ensure character boundary safety

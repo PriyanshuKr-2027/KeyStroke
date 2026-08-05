@@ -14,13 +14,8 @@ interface DictionaryItem {
 }
 
 interface MemoryTabProps {
-  onPinPhrase?: (id: string) => void;
-  onDeletePhrase?: (id: string) => void;
-  onIgnorePhrase?: (id: string) => void;
-  onClearAllPhrases?: () => void;
   onAddWord?: (word: string) => void;
   onDeleteWord?: (id: string) => void;
-  onToggleLearning?: (enabled: boolean) => void;
   isLoading?: boolean;
   isError?: boolean;
   errorMessage?: string;
@@ -108,37 +103,35 @@ export const MemoryTab: React.FC<MemoryTabProps> = ({
             : i
         )
       );
+      if (onAddWord) onAddWord(cleanWord);
     } else {
-      invoke("add_personal_word", { word: cleanWord })
-        .then(() => {
-          const newItem: DictionaryItem = {
-            id: String(Date.now()),
-            word: cleanWord,
-            expansion: expansionInput.trim() || undefined,
-            category: "personal",
-          };
-          setDictionaryItems((prev) => [...prev, newItem]);
-          if (onAddWord) onAddWord(cleanWord);
-        })
-        .catch((err) => console.error("add_personal_word error:", err));
+      const newItem: DictionaryItem = {
+        id: String(Date.now()),
+        word: cleanWord,
+        expansion: expansionInput.trim() || undefined,
+        category: "personal",
+      };
+      setDictionaryItems((prev) => [...prev, newItem]);
+      if (onAddWord) onAddWord(cleanWord);
     }
 
     setIsModalOpen(false);
   };
 
   const handleDelete = (id: string) => {
-    invoke("delete_personal_word", { id })
-      .then(() => {
-        setDictionaryItems((prev) => prev.filter((i) => i.id !== id));
-        if (onDeleteWord) onDeleteWord(id);
-      })
-      .catch(() => {
-        invoke("delete_learned_phrase", { id })
-          .then(() => {
-            setDictionaryItems((prev) => prev.filter((i) => i.id !== id));
-          })
-          .catch((err) => console.error("delete_personal_word/phrase error:", err));
-      });
+    const item = dictionaryItems.find((i) => i.id === id);
+    if (!item) return;
+
+    if (item.category === "personal") {
+      setDictionaryItems((prev) => prev.filter((i) => i.id !== id));
+      if (onDeleteWord) onDeleteWord(id);
+    } else {
+      invoke("delete_learned_phrase", { id })
+        .then(() => {
+          setDictionaryItems((prev) => prev.filter((i) => i.id !== id));
+        })
+        .catch((err) => console.error("delete_learned_phrase error:", err));
+    }
   };
 
   if (isError || localError) {
@@ -244,6 +237,7 @@ export const MemoryTab: React.FC<MemoryTabProps> = ({
       </div>
 
       {/* Dictionary Rows List */}
+      <div aria-live="polite">
       {isLoading || localLoading ? (
         <TableRowSkeleton count={4} />
       ) : filteredItems.length > 0 ? (
@@ -293,6 +287,7 @@ export const MemoryTab: React.FC<MemoryTabProps> = ({
           onAction={handleOpenAddModal}
         />
       )}
+      </div>
 
       {/* Add / Edit Word Modal */}
       {isModalOpen && (

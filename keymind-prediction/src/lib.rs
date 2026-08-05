@@ -47,16 +47,14 @@ impl PredictionEngine {
     /// Uses Tier 1 Trigram (< 1ms). Falls back to Tier 2 ONNX if confidence < 0.4.
     pub async fn predict(&self, context: &str) -> (Vec<String>, f32) {
         let words: Vec<&str> = context.split_whitespace().collect();
-        if words.len() < 2 {
-            return (Vec::new(), 0.0);
-        }
+        if words.len() >= 2 {
+            let w1 = words[words.len() - 2];
+            let w2 = words[words.len() - 1];
 
-        let w1 = words[words.len() - 2];
-        let w2 = words[words.len() - 1];
-
-        if let Ok((suggestions, confidence)) = query_trigrams(&self.db, w1, w2).await {
-            if confidence >= 0.4 && !suggestions.is_empty() {
-                return (suggestions, confidence);
+            if let Ok((suggestions, confidence)) = query_trigrams(&self.db, w1, w2).await {
+                if confidence >= 0.4 && !suggestions.is_empty() {
+                    return (suggestions, confidence);
+                }
             }
         }
 

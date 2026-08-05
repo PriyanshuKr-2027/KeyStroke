@@ -32,7 +32,7 @@ pub enum LearningEvent {
 pub struct LearningEngine {
     db: Arc<SqlitePool>,
     privacy: Arc<RwLock<PrivacyFilter>>,
-    enabled: Arc<AtomicBool>,
+    pub enabled: Arc<AtomicBool>,
 }
 
 impl LearningEngine {
@@ -45,27 +45,26 @@ impl LearningEngine {
     }
 
     pub fn toggle_learning(&self, enabled: bool) {
-        self.enabled.store(enabled, Ordering::SeqCst);
+        self.enabled.store(enabled, Ordering::Relaxed);
     }
 
     pub fn start(
+        enabled: Arc<AtomicBool>,
         db: Arc<SqlitePool>,
+        privacy: Arc<RwLock<PrivacyFilter>>,
         mut rx: mpsc::Receiver<TypingEvent>,
     ) -> JoinHandle<()> {
-        let privacy = PrivacyFilter::new();
-        let enabled = Arc::new(AtomicBool::new(true));
-
         tokio::spawn(async move {
             let _ = init_learning_tables(&db).await;
             let mut extractor = NgramExtractor::default();
 
             while let Some(evt) = rx.recv().await {
-                if !enabled.load(Ordering::SeqCst) {
+                if !enabled.load(Ordering::Relaxed) {
                     continue;
                 }
 
                 // Apply privacy filters
-                if !privacy.is_safe(&evt.text, evt.app_id.as_deref(), evt.is_sensitive) {
+                if !privacy.read().is_safe(&evt.text, evt.app_id.as_deref(), evt.is_sensitive) {
                     continue;
                 }
 

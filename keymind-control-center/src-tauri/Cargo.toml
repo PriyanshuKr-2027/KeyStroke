@@ -23,6 +23,10 @@ dotenvy = "0.15"
 keymind-palette = { path = "../../keymind-palette" }
 keymind-interceptor-windows = { path = "../../keymind-interceptor-windows" }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.23"
+core-foundation = "0.9"
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]

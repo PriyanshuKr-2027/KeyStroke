@@ -1,4 +1,4 @@
-name: Release KeyMind Desktop App
+name: Release KeyStroke Desktop App
 
 on:
   push:
@@ -48,7 +48,7 @@ jobs:
         with:
           projectPath: ./keymind-control-center
           tagName: v__VERSION__
-          releaseName: 'KeyMind Control Center v__VERSION__'
-          releaseBody: 'Cross-platform KeyMind Desktop Release (.dmg, .AppImage, .deb, .msi, .exe).'
-          releaseDraft: true
+          releaseName: 'KeyStroke v__VERSION__'
+          releaseBody: 'Cross-platform KeyStroke Desktop Release (.dmg, .AppImage, .deb, .msi, .exe).'
+          releaseDraft: false
           prerelease: false

@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: keymind-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: keymind
+      POSTGRES_PASSWORD: keymind_secret_password
+      POSTGRES_DB: keymind_sync_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: keymind-redis
+    restart: always
+    ports:
+      - "6379:6379"
+
+  sync-server:
+    build: .
+    container_name: keymind-sync-server
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: "postgresql://keymind:keymind_secret_password@postgres:5432/keymind_sync_db?schema=public"
+      REDIS_URL: "redis://redis:6379"
+      SUPABASE_JWT_SECRET: "super-secret-jwt-key"
+      PORT: "3000"
+    depends_on:
+      - postgres
+      - redis
+
+volumes:
+  postgres_data:

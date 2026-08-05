@@ -1,0 +1,22 @@
+[package]
+name = "keymind-autocorrect"
+version = "0.1.0"
+edition = "2021"
+description = "Fast 4-layer autocorrect engine in Rust for real-time typing assistants."
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio"] }
+symspell = "0.5"
+tokio = { version = "1.38", features = ["sync", "rt-multi-thread", "macros"] }
+parking_lot = "0.12"
+thiserror = "1.0"
+tracing = "0.1"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["async_tokio"] }
+tokio = { version = "1.38", features = ["full"] }
+
+[[bench]]
+name = "autocorrect_bench"
+harness = false

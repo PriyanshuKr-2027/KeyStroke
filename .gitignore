@@ -1,0 +1,66 @@
+# Rust / Cargo
+target/
+**/target/
+**/*.rs.bk
+cargo-timing.html
+
+# Node / Dependencies
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.output/
+
+# Executables and Libraries
+*.exe
+*.dll
+*.so
+*.dylib
+*.pdb
+*.dmg
+*.pkg
+*.app
+*.msi
+
+# Operating System Files
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.stackdump
+
+# Linux
+*~
+.fuse_hidden*
+
+# IDE & Editor Files
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.iml
+*.ipr
+*.iws
+*.swp
+*.swo
+
+# Environment Variables & Secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Logs
+*.log

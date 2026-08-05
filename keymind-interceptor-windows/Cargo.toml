@@ -1,0 +1,27 @@
+[package]
+name = "keymind-interceptor-windows"
+version = "0.1.0"
+edition = "2021"
+description = "Windows low-level keyboard interceptor, context buffer tracker, SendInput injector, and Windows Service wrapper."
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+tokio = { version = "1.38", features = ["sync", "rt", "macros", "time"] }
+thiserror = "1.0"
+tracing = "0.1"
+parking_lot = "0.12"
+windows-service = "0.7"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Accessibility",
+    "Win32_System_Services",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading"
+] }
+
+[dev-dependencies]
+tokio = { version = "1.38", features = ["full"] }

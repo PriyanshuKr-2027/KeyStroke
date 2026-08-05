@@ -1,0 +1,19 @@
+[package]
+name = "keymind-interceptor-macos"
+version = "0.1.0"
+edition = "2021"
+description = "macOS low-level keyboard event interceptor, context buffer tracker, and text injector for typing assistants."
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+tokio = { version = "1.38", features = ["sync", "rt", "macros", "time"] }
+thiserror = "1.0"
+tracing = "0.1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.23"
+core-foundation = "0.9"
+core-foundation-sys = "0.8"
+
+[dev-dependencies]
+tokio = { version = "1.38", features = ["full"] }

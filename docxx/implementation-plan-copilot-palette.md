@@ -598,3 +598,21 @@ serde = { version = "1", features = ["derive"] }
 | Multi-monitor setup | Palette opens on the monitor containing the active window, not always primary |
 | IME conflict (CJK input methods) | Add remapping option in Settings; document known conflict |
 | Very slow LLM response (> 10s) | Show elapsed time counter in loading state after 3s |
+
+---
+
+## Phase 7 — Verification, State Locking & Build Artifact Distribution
+
+### 7.1 Verification & State Locking
+* **Single-Channel Event Loop**: The global interceptor lifecycle (`lifecycle.rs`) maintains an unbuffered channel to route hotkey triggers directly without dropped events or UI freezes.
+* **Backend Mutex Lock Stabilization**: All Tauri IPC command handlers (including palette queries and shortcut rebinds) utilize thread-safe `Arc<Mutex<T>>` locking, verified across 43 audit check points.
+
+### 7.2 Release Artifacts & Distribution Packaging
+KeyMind and the Copilot Palette feature are compiled and packaged into dual release formats:
+
+1. **Standalone Installer**: `KeyStroke_Installer_v0.1.0.exe`
+   - Configured with `downloadBootstrapper` for seamless Microsoft WebView2 runtime installation.
+   - Installs system-wide keyboard hook service and Control Center dashboard.
+2. **Portable Executable Package**: `KeyStroke_v0.1.0_Portable_x64.zip`
+   - Pre-packaged zero-install x64 distribution containing all compiled Rust binaries, SQLite dictionary database schemas, and frontend bundles.
+

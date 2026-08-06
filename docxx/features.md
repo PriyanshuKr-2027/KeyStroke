@@ -69,3 +69,8 @@
 * **Description**: 3-step onboarding flow guiding users through system setup.
 * **Permission Detection**: Integrates `open_accessibility_settings` command allowing users to open OS accessibility preferences directly from the wizard, paired with an auto-advance / continue mechanism to proceed seamlessly.
 
+### FEAT-16: Dual Packaging & Portable Release Distribution
+* **Installer Bundle**: `KeyStroke_Installer_v0.1.0.exe` with bundled WebView2 bootstrapper and auto-start system service.
+* **Portable Edition**: `KeyStroke_v0.1.0_Portable_x64.zip` for standalone, zero-installation execution across any Windows x64 machine.
+
+

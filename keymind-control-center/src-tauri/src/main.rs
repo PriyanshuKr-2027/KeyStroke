@@ -559,12 +559,18 @@ pub struct AutocorrectResult {
 }
 
 use keymind_autocorrect::symspell_layer::SymSpellEngine;
+use keymind_autocorrect::TrigramPredictor;
 use std::sync::OnceLock;
 
 static SYMSPELL: OnceLock<SymSpellEngine> = OnceLock::new();
+static PREDICTOR: OnceLock<TrigramPredictor> = OnceLock::new();
 
 fn get_symspell() -> &'static SymSpellEngine {
     SYMSPELL.get_or_init(|| SymSpellEngine::new())
+}
+
+fn get_predictor() -> &'static TrigramPredictor {
+    PREDICTOR.get_or_init(|| TrigramPredictor::new())
 }
 
 #[tauri::command]
@@ -594,44 +600,18 @@ pub struct PredictionResult {
 
 #[tauri::command]
 fn predict_next_word(context: String) -> Option<PredictionResult> {
-    let words: Vec<&str> = context.split_whitespace().collect();
-    if words.is_empty() {
+    let clean_context = context.trim();
+    if clean_context.is_empty() {
         return None;
     }
 
-    let last_two = if words.len() >= 2 {
-        format!("{} {}", words[words.len() - 2], words[words.len() - 1]).to_lowercase()
-    } else {
-        words[words.len() - 1].to_lowercase()
-    };
-
-    let suggestions = match last_two.as_str() {
-        "thank you" | "thanks" => vec!["very", "much", "for", "so"],
-        "how are" => vec!["you", "things", "they"],
-        "good" => vec!["morning", "afternoon", "evening", "luck"],
-        "see you" => vec!["later", "soon", "tomorrow"],
-        "let me" => vec!["know", "check", "see"],
-        "looking forward" => vec!["to", "hearing"],
-        "best" => vec!["regards", "wishes"],
-        "please" => vec!["let", "find", "check", "confirm"],
-        "the" => vec!["first", "next", "best", "following"],
-        "in order" => vec!["to", "that"],
-        _ => {
-            let last = words.last().copied().unwrap_or("").to_lowercase();
-            match last.as_str() {
-                "thank" => vec!["you"],
-                "how" => vec!["are", "to", "can"],
-                "looking" => vec!["forward", "at", "for"],
-                "best" => vec!["regards"],
-                _ => vec![],
-            }
-        }
-    };
+    let predictor = get_predictor();
+    let suggestions = predictor.predict(clean_context);
 
     if !suggestions.is_empty() {
         Some(PredictionResult {
-            candidate_word: suggestions[0].to_string(),
-            suggestions: suggestions.into_iter().map(|s| s.to_string()).collect(),
+            candidate_word: suggestions[0].clone(),
+            suggestions,
         })
     } else {
         None

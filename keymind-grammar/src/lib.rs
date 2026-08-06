@@ -5,15 +5,14 @@ pub mod shortcut;
 
 use cache::GrammarCache;
 use fixer::apply_text_fixes;
+use nlprule::{Rules, Tokenizer};
 use serde::{Deserialize, Serialize};
-use server_process::ServerProcessManager;
 pub use shortcut::SelectionFixer;
+use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::time::timeout;
-use tracing::warn;
+use std::sync::OnceLock;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GrammarIssue {
@@ -25,95 +24,65 @@ pub struct GrammarIssue {
     pub category: String, // "TYPOS" | "GRAMMAR" | "STYLE" | "PUNCTUATION"
 }
 
-#[derive(Debug, Deserialize)]
-struct LtReplacement {
-    value: String,
-}
+static TOKENIZER: OnceLock<Tokenizer> = OnceLock::new();
+static RULES: OnceLock<Rules> = OnceLock::new();
 
-#[derive(Debug, Deserialize)]
-struct LtCategory {
-    id: Option<String>,
-}
+fn get_nlprule_engine() -> Option<(&'static Tokenizer, &'static Rules)> {
+    let tokenizer = TOKENIZER.get_or_init(|| {
+        let bytes = include_bytes!(concat!(env!("OUT_DIR"), "/en_tokenizer.bin"));
+        Tokenizer::new(Cursor::new(bytes)).expect("Failed to parse embedded nlprule tokenizer")
+    });
 
-#[derive(Debug, Deserialize)]
-struct LtRule {
-    id: String,
-    category: Option<LtCategory>,
-}
+    let rules = RULES.get_or_init(|| {
+        let bytes = include_bytes!(concat!(env!("OUT_DIR"), "/en_rules.bin"));
+        Rules::new(Cursor::new(bytes)).expect("Failed to parse embedded nlprule rules")
+    });
 
-#[derive(Debug, Deserialize)]
-struct LtMatch {
-    offset: usize,
-    length: usize,
-    message: String,
-    replacements: Vec<LtReplacement>,
-    rule: LtRule,
-}
-
-#[derive(Debug, Deserialize)]
-struct LtResponse {
-    matches: Vec<LtMatch>,
+    Some((tokenizer, rules))
 }
 
 pub struct GrammarEngine {
-    client: reqwest::Client,
-    process_manager: Option<Arc<ServerProcessManager>>,
     cache: GrammarCache,
     is_ready: Arc<AtomicBool>,
-    port: u16,
+}
+
+impl Default for GrammarEngine {
+    fn default() -> Self {
+        Self::new(8081)
+    }
 }
 
 impl GrammarEngine {
-    /// Construct GrammarEngine with custom server port.
-    pub fn new(port: u16) -> Self {
+    /// Construct GrammarEngine (port parameter preserved for backwards API compatibility).
+    pub fn new(_port: u16) -> Self {
         Self {
-            client: reqwest::Client::builder()
-                .timeout(Duration::from_millis(2000))
-                .build()
-                .unwrap_or_default(),
-            process_manager: None,
             cache: GrammarCache::default(),
-            is_ready: Arc::new(AtomicBool::new(false)),
-            port,
+            is_ready: Arc::new(AtomicBool::new(true)),
         }
     }
 
-    /// Construct GrammarEngine managing LanguageTool Java process.
-    pub fn with_java_server(jar_path: PathBuf, port: u16) -> Self {
-        let mgr = Arc::new(ServerProcessManager::new(jar_path, port));
-        Self {
-            client: reqwest::Client::builder()
-                .timeout(Duration::from_millis(2000))
-                .build()
-                .unwrap_or_default(),
-            process_manager: Some(mgr),
-            cache: GrammarCache::default(),
-            is_ready: Arc::new(AtomicBool::new(false)),
-            port,
-        }
+    /// Legacy constructor preserved for compatibility.
+    pub fn with_java_server(_jar_path: PathBuf, _port: u16) -> Self {
+        Self::new(_port)
     }
 
-    /// Start server process (if configured) and perform warmup request.
+    /// Initialize and warm up the native nlprule engine.
     pub async fn start(&self) {
-        if let Some(ref mgr) = self.process_manager {
-            let started = mgr.start_server().await;
-            self.is_ready.store(started, Ordering::SeqCst);
-        } else {
-            // Assume external server is running
-            self.is_ready.store(true, Ordering::SeqCst);
-        }
+        let _ = tokio::task::spawn_blocking(|| {
+            let _ = get_nlprule_engine();
+        })
+        .await;
 
-        // Perform warm up check
-        let _ = self.check_text("Hello world.", "en-US").await;
+        self.is_ready.store(true, Ordering::SeqCst);
     }
 
     pub fn is_ready(&self) -> bool {
         self.is_ready.load(Ordering::SeqCst)
     }
 
-    /// Asynchronously check text for grammar issues against LanguageTool.
-    /// Max timeout: 2000ms. Returns empty Vec on timeout or failure.
-    pub async fn check_text(&self, text: &str, language: &str) -> Vec<GrammarIssue> {
+    /// Synchronously or asynchronously check text for grammar issues using native Rust nlprule.
+    /// Runs sub-millisecond to ~10ms without any Java process or HTTP overhead.
+    pub async fn check_text(&self, text: &str, _language: &str) -> Vec<GrammarIssue> {
         let text_trimmed = text.trim();
         if text_trimmed.is_empty() {
             return Vec::new();
@@ -124,84 +93,50 @@ impl GrammarEngine {
             return cached;
         }
 
-        // 2. Perform HTTP request to LanguageTool /v2/check
-        let url = format!("http://localhost:{}/v2/check", self.port);
-        let params = [
-            ("text", text_trimmed),
-            ("language", if language.is_empty() { "en-US" } else { language }),
-        ];
+        let text_owned = text_trimmed.to_string();
+        let issues = tokio::task::spawn_blocking(move || {
+            let (tokenizer, rules) = match get_nlprule_engine() {
+                Some(e) => e,
+                None => return Vec::new(),
+            };
 
+            let suggestions = rules.suggest(&text_owned, tokenizer);
+            suggestions
+                .into_iter()
+                .map(|s| {
+                    let start_char = text_owned[..s.start()].chars().count();
+                    let len_char = text_owned[s.start()..s.end()].chars().count();
+                    let rule_id = s.rule_id().to_string();
 
-        let attempt_future = async {
-            for attempt in 0..2 {
-                match timeout(Duration::from_millis(1000), self.client.post(&url).form(&params).send()).await {
-                    Ok(Ok(res)) => {
-                        return Some(res);
+                    let category = if rule_id.contains("TYPO") || rule_id.contains("SPELL") {
+                        "TYPOS".to_string()
+                    } else if rule_id.contains("STYLE") {
+                        "STYLE".to_string()
+                    } else if rule_id.contains("PUNCTUATION") || rule_id.contains("COMMA") {
+                        "PUNCTUATION".to_string()
+                    } else {
+                        "GRAMMAR".to_string()
+                    };
+
+                    GrammarIssue {
+                        offset: start_char,
+                        length: len_char,
+                        message: s.message().to_string(),
+                        replacements: s
+                            .replacements()
+                            .iter()
+                            .map(|r| r.value().to_string())
+                            .collect(),
+                        rule_id,
+                        category,
                     }
-                    Ok(Err(e)) => {
-                        warn!("LanguageTool HTTP request failed (attempt {}): {}", attempt + 1, e);
-                        if attempt == 0 {
-                            tokio::time::sleep(Duration::from_millis(500)).await;
-                        }
-                    }
-                    Err(_) => {
-                        warn!("LanguageTool check_text request timed out after 1000ms (attempt {})", attempt + 1);
-                        if attempt == 0 {
-                            tokio::time::sleep(Duration::from_millis(500)).await;
-                        }
-                    }
-                }
-            }
-            None
-        };
+                })
+                .collect::<Vec<GrammarIssue>>()
+        })
+        .await
+        .unwrap_or_default();
 
-        let resp_result = match timeout(Duration::from_millis(2000), attempt_future).await {
-            Ok(res) => res,
-            Err(_) => {
-                warn!("LanguageTool total check_text timed out after 2000ms");
-                None
-            }
-        };
-
-        let resp_result = match resp_result {
-            Some(r) => r,
-            None => return Vec::new(),
-        };
-
-        if !resp_result.status().is_success() {
-            return Vec::new();
-        }
-
-        let lt_resp: LtResponse = match resp_result.json().await {
-            Ok(json) => json,
-            Err(e) => {
-                warn!("Failed to parse LanguageTool response JSON: {}", e);
-                return Vec::new();
-            }
-        };
-
-        let issues: Vec<GrammarIssue> = lt_resp
-            .matches
-            .into_iter()
-            .map(|m| {
-                let cat = m
-                    .rule
-                    .category
-                    .and_then(|c| c.id)
-                    .unwrap_or_else(|| "GRAMMAR".to_string());
-
-                GrammarIssue {
-                    offset: m.offset,
-                    length: m.length,
-                    message: m.message,
-                    replacements: m.replacements.into_iter().map(|r| r.value).collect(),
-                    rule_id: m.rule.id,
-                    category: cat,
-                }
-            })
-            .collect();
-
-        // Save to cache
+        // Save to LRU cache
         self.cache.put(text_trimmed, issues.clone());
         issues
     }

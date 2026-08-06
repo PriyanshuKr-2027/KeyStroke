@@ -86,6 +86,10 @@
 * Must guide new users through permission setup, AI key configuration, and typing presets.
 * Must include direct OS accessibility launcher trigger (`open_accessibility_settings`) and auto-advance/continue state handling.
 
+### Module 9: Distribution Packaging & Portable Delivery
+* Must provide dual distribution formats: NSIS Webview2 setup installer (`KeyStroke_Installer_v0.1.0.exe`) and portable zero-install standalone zip archive (`KeyStroke_v0.1.0_Portable_x64.zip`).
+
+
 ---
 
 ## 6. Non-Functional Requirements

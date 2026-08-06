@@ -765,4 +765,17 @@ Errors never interrupt typing. The daemon is always the priority. The UI reflect
 - **Sidebar**: fixed, not collapsible, not resizable
 - **On close**: minimizes to system tray (configurable in Settings)
 - **On tray icon click**: restores window to last position and size
+
+---
+
+## 13. Distribution & Installation Packaging
+
+KeyMind provides two official release distribution packages:
+
+1. **Installer Edition**: `KeyStroke_Installer_v0.1.0.exe` (7.5 MB)
+   - NSIS setup with `downloadBootstrapper` configuration for automated WebView2 runtime installation.
+   - Registers system startup shortcuts and tray service daemon.
+2. **Portable Edition**: `KeyStroke_v0.1.0_Portable_x64.zip` (10.8 MB)
+   - Zero-installation portable package containing pre-compiled binaries, local SQLite dictionaries, and frontend webview static assets.
+
 - **Window title**: `KeyMind` (no page name in title bar)

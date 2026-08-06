@@ -140,3 +140,13 @@ CREATE TABLE IF NOT EXISTS app_preferences (
 * **Linker Resolution**: Modern 64-bit MinGW-w64 (`winlibs-x86_64-posix-seh-gcc-16.1.0`) placed at the top of System `PATH` to resolve GNU `dlltool.exe` conflicts during `windows-sys` and `libsqlite3-sys` compilation.
 * **Bundling & Installer**: Windows `downloadBootstrapper` configured for WebView2 runtime installer bundling in NSIS / MSI installers.
 * **Frontend Build**: Vite 5 + React 18 + Tailwind CSS 3.4 (`postcss.config.js` and `tailwind.config.js` configured for PostCSS pipeline).
+
+---
+
+## 5. Distribution Artifacts & Release Specifications
+
+| Artifact File | Size | Distribution Type | Features & Bundling |
+| :--- | :--- | :--- | :--- |
+| `KeyStroke_Installer_v0.1.0.exe` | 7.5 MB | Windows NSIS Setup | WebView2 bootstrapper, auto-start service registration, system hook drivers |
+| `KeyStroke_v0.1.0_Portable_x64.zip` | 10.8 MB | Portable Standalone Zip | Zero-install portable bundle, pre-compiled Rust core engine, embedded SQLite dictionaries |
+

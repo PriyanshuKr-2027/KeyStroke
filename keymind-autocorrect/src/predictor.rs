@@ -1,12 +1,12 @@
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 const DEFAULT_NGRAMS_BIN: &[u8] = include_bytes!("../data/ngrams_en.bin");
 
 pub struct TrigramPredictor {
     // (w1, w2) -> Vec<suggestion>
-    trigrams: HashMap<(String, String), Vec<String>>,
+    trigrams: FxHashMap<(Box<str>, Box<str>), Vec<Box<str>>>,
     // w1 -> Vec<suggestion>
-    bigrams: HashMap<String, Vec<String>>,
+    bigrams: FxHashMap<Box<str>, Vec<Box<str>>>,
 }
 
 impl Default for TrigramPredictor {
@@ -17,8 +17,8 @@ impl Default for TrigramPredictor {
 
 impl TrigramPredictor {
     pub fn new() -> Self {
-        let mut trigrams = HashMap::new();
-        let mut bigrams = HashMap::new();
+        let mut trigrams = FxHashMap::default();
+        let mut bigrams = FxHashMap::default();
         let bytes = DEFAULT_NGRAMS_BIN;
         let mut cursor = 0;
 
@@ -33,12 +33,12 @@ impl TrigramPredictor {
                 }
                 let len1 = bytes[cursor] as usize;
                 cursor += 1;
-                let w1 = String::from_utf8_lossy(&bytes[cursor..cursor + len1]).to_lowercase();
+                let w1 = String::from_utf8_lossy(&bytes[cursor..cursor + len1]).to_lowercase().into_boxed_str();
                 cursor += len1;
 
                 let len2 = bytes[cursor] as usize;
                 cursor += 1;
-                let w2 = String::from_utf8_lossy(&bytes[cursor..cursor + len2]).to_lowercase();
+                let w2 = String::from_utf8_lossy(&bytes[cursor..cursor + len2]).to_lowercase().into_boxed_str();
                 cursor += len2;
 
                 let sug_count = bytes[cursor] as usize;
@@ -48,7 +48,7 @@ impl TrigramPredictor {
                 for _ in 0..sug_count {
                     let len_s = bytes[cursor] as usize;
                     cursor += 1;
-                    let s = String::from_utf8_lossy(&bytes[cursor..cursor + len_s]).to_string();
+                    let s = String::from_utf8_lossy(&bytes[cursor..cursor + len_s]).to_string().into_boxed_str();
                     cursor += len_s;
                     sugs.push(s);
                 }
@@ -72,7 +72,7 @@ impl TrigramPredictor {
                     }
                     let len1 = bytes[cursor] as usize;
                     cursor += 1;
-                    let w1 = String::from_utf8_lossy(&bytes[cursor..cursor + len1]).to_lowercase();
+                    let w1 = String::from_utf8_lossy(&bytes[cursor..cursor + len1]).to_lowercase().into_boxed_str();
                     cursor += len1;
 
                     let sug_count = bytes[cursor] as usize;
@@ -82,7 +82,7 @@ impl TrigramPredictor {
                     for _ in 0..sug_count {
                         let len_s = bytes[cursor] as usize;
                         cursor += 1;
-                        let s = String::from_utf8_lossy(&bytes[cursor..cursor + len_s]).to_string();
+                        let s = String::from_utf8_lossy(&bytes[cursor..cursor + len_s]).to_string().into_boxed_str();
                         cursor += len_s;
                         sugs.push(s);
                     }
@@ -108,16 +108,16 @@ impl TrigramPredictor {
         // 1. Try Trigram match if at least 2 context words available
         if len >= 2 {
             let last2 = words[len - 2].to_lowercase();
-            if let Some(sugs) = self.trigrams.get(&(last2, last1.clone())) {
+            if let Some(sugs) = self.trigrams.get(&(last2.as_str().into(), last1.as_str().into())) {
                 if !sugs.is_empty() {
-                    return sugs.clone();
+                    return sugs.iter().map(|s| s.to_string()).collect();
                 }
             }
         }
 
         // 2. Backoff to Bigram match
-        if let Some(sugs) = self.bigrams.get(&last1) {
-            return sugs.clone();
+        if let Some(sugs) = self.bigrams.get(last1.as_str()) {
+            return sugs.iter().map(|s| s.to_string()).collect();
         }
 
         Vec::new()

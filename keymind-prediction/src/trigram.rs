@@ -121,6 +121,11 @@ pub async fn query_trigrams(
         0.0
     };
 
+    // Gboard Rule: Minimum confidence threshold to show prediction chip (>= 30%)
+    if confidence < 0.30 {
+        return Ok((Vec::new(), confidence));
+    }
+
     let suggestions: Vec<String> = rows.into_iter().map(|(w3, _)| w3).collect();
     Ok((suggestions, confidence))
 }

@@ -26,7 +26,7 @@
       ],
       "windows": {
         "webviewInstallMode": {
-          "type": "downloadBootstrapper"
+          "type": "embedBootstrapper"
         },
         "allowDowngrades": false,
         "nsis": {

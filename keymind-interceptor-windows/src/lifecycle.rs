@@ -1,5 +1,5 @@
 use crate::events::Event;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -8,6 +8,7 @@ use tracing::info;
 
 pub struct HookHandle {
     is_running: Arc<AtomicBool>,
+    thread_id: Arc<AtomicU32>,
     thread_handle: Option<JoinHandle<()>>,
     watchdog_handle: Option<JoinHandle<()>>,
 }
@@ -19,6 +20,19 @@ impl HookHandle {
 
     pub fn stop(mut self) {
         self.is_running.store(false, Ordering::SeqCst);
+
+        // Post WM_QUIT to unblock GetMessageW on the hook thread
+        #[cfg(target_os = "windows")]
+        {
+            use windows_sys::Win32::UI::WindowsAndMessaging::PostThreadMessageW;
+            let tid = self.thread_id.load(Ordering::SeqCst);
+            if tid != 0 {
+                unsafe {
+                    PostThreadMessageW(tid, 0x0012 /* WM_QUIT */, 0, 0);
+                }
+            }
+        }
+
         if let Some(h) = self.thread_handle.take() {
             let _ = h.join();
         }
@@ -36,9 +50,9 @@ static mut INTERCEPTOR_HWND: windows_sys::Win32::Foundation::HWND = 0;
 #[cfg(target_os = "windows")]
 static mut HOOK_HANDLE: windows_sys::Win32::UI::WindowsAndMessaging::HHOOK = 0;
 #[cfg(target_os = "windows")]
-static SENDER: std::sync::Mutex<Option<mpsc::Sender<Event>>> = std::sync::Mutex::new(None);
+static SENDER: parking_lot::Mutex<Option<mpsc::Sender<Event>>> = parking_lot::const_mutex(None);
 #[cfg(target_os = "windows")]
-static WORD_BUFFER: std::sync::Mutex<Vec<char>> = std::sync::Mutex::new(Vec::new());
+static WORD_BUFFER: parking_lot::Mutex<Vec<char>> = parking_lot::const_mutex(Vec::new());
 
 #[cfg(target_os = "windows")]
 unsafe extern "system" fn low_level_keyboard_proc(
@@ -62,28 +76,29 @@ unsafe extern "system" fn low_level_keyboard_proc(
             let is_alt = (GetAsyncKeyState(VK_MENU as i32) as u16 & 0x8000) != 0;
 
             if !is_control && !is_alt {
-                if let Ok(mut buf) = WORD_BUFFER.lock() {
+                // CRITICAL: Use try_lock to avoid blocking — hook must return fast
+                if let Some(mut buf) = WORD_BUFFER.try_lock() {
                     if ch.is_alphanumeric() || ch == '/' || ch == '_' || ch == '-' {
                         buf.push(ch);
                     } else if ch == ' ' || ch == '\r' || ch == '\n' || ch == '\t' || ch == '.' || ch == ',' || ch == '!' || ch == '?' {
                         if !buf.is_empty() {
                             let word: String = buf.iter().collect();
                             buf.clear();
+                            drop(buf); // Release lock before trying sender
 
-                            if let Ok(sender_guard) = SENDER.lock() {
-                                if let Some(ref sender) = *sender_guard {
-                                    let _ = sender.try_send(Event::WordCompleted {
-                                        word: word.clone(),
-                                        context: word,
-                                    });
-                                }
+                            // Non-blocking try_send — never block in hook callback
+                            if let Some(ref sender) = *SENDER.lock() {
+                                let _ = sender.try_send(Event::WordCompleted {
+                                    word: word.clone(),
+                                    context: word,
+                                });
                             }
                         }
                     }
                 }
             }
         } else if vk == VK_BACK as u32 {
-            if let Ok(mut buf) = WORD_BUFFER.lock() {
+            if let Some(mut buf) = WORD_BUFFER.try_lock() {
                 if !buf.is_empty() {
                     buf.pop();
                 }
@@ -115,6 +130,8 @@ pub fn update_registered_hotkey(id: i32, modifiers: u32, vk_code: u32) {
 pub fn start_interceptor(sender: mpsc::Sender<Event>) -> HookHandle {
     let is_running = Arc::new(AtomicBool::new(true));
     let is_running_clone = is_running.clone();
+    let thread_id_store = Arc::new(AtomicU32::new(0));
+    let thread_id_clone = thread_id_store.clone();
 
     let thread_handle = thread::spawn(move || {
         #[cfg(target_os = "windows")]
@@ -127,11 +144,14 @@ pub fn start_interceptor(sender: mpsc::Sender<Event>) -> HookHandle {
                 TranslateMessage, MSG, WM_HOTKEY, WH_KEYBOARD_LL,
             };
             use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+            use windows_sys::Win32::System::Threading::GetCurrentThreadId;
 
             unsafe {
-                if let Ok(mut guard) = SENDER.lock() {
-                    *guard = Some(sender.clone());
-                }
+                // Store this thread's ID so stop() can post WM_QUIT to it
+                let tid = GetCurrentThreadId();
+                thread_id_clone.store(tid, Ordering::SeqCst);
+
+                *SENDER.lock() = Some(sender.clone());
 
                 // Install WH_KEYBOARD_LL low-level keyboard hook
                 let h_instance = GetModuleHandleW(std::ptr::null());
@@ -142,35 +162,36 @@ pub fn start_interceptor(sender: mpsc::Sender<Event>) -> HookHandle {
                     0,
                 );
 
-                // Register default global hotkeys matching shortcuts.rs
+                // Register default global hotkeys
                 RegisterHotKey(0, 1, (MOD_CONTROL | MOD_ALT) as u32, VK_SPACE as u32);
-                RegisterHotKey(0, 2, (MOD_CONTROL | MOD_ALT) as u32, 0x47); // Ctrl+Alt+G (grammar)
-                RegisterHotKey(0, 3, (MOD_CONTROL | MOD_ALT) as u32, 0x50); // Ctrl+Alt+P (pro)
-                RegisterHotKey(0, 4, (MOD_CONTROL | MOD_ALT) as u32, 0x53); // Ctrl+Alt+S (summarize)
-                RegisterHotKey(0, 5, (MOD_CONTROL | MOD_ALT) as u32, 0x58); // Ctrl+Alt+X (expand)
-                RegisterHotKey(0, 6, (MOD_CONTROL | MOD_ALT) as u32, 0x4B); // Ctrl+Alt+K (toggle)
+                RegisterHotKey(0, 2, (MOD_CONTROL | MOD_ALT) as u32, 0x47); // Ctrl+Alt+G
+                RegisterHotKey(0, 3, (MOD_CONTROL | MOD_ALT) as u32, 0x50); // Ctrl+Alt+P
+                RegisterHotKey(0, 4, (MOD_CONTROL | MOD_ALT) as u32, 0x53); // Ctrl+Alt+S
+                RegisterHotKey(0, 5, (MOD_CONTROL | MOD_ALT) as u32, 0x58); // Ctrl+Alt+X
+                RegisterHotKey(0, 6, (MOD_CONTROL | MOD_ALT) as u32, 0x4B); // Ctrl+Alt+K
             }
 
-            while is_running_clone.load(Ordering::SeqCst) {
+            // Message pump — GetMessageW blocks until a message arrives or WM_QUIT
+            loop {
                 unsafe {
                     let mut msg: MSG = std::mem::zeroed();
-                    while GetMessageW(&mut msg, 0, 0, 0) > 0 {
-                        if !is_running_clone.load(Ordering::SeqCst) {
-                            break;
-                        }
-
-                        if msg.message == WM_HOTKEY {
-                            let id = msg.wParam as u32;
-                            if id == 1 {
-                                let _ = sender.blocking_send(Event::PaletteRequested);
-                            } else {
-                                let _ = sender.blocking_send(Event::HotKeyTriggered(id));
-                            }
-                        }
-
-                        TranslateMessage(&msg);
-                        DispatchMessageW(&msg);
+                    let ret = GetMessageW(&mut msg, 0, 0, 0);
+                    if ret <= 0 {
+                        // ret == 0 means WM_QUIT received, ret == -1 means error
+                        break;
                     }
+
+                    if msg.message == WM_HOTKEY {
+                        let id = msg.wParam as u32;
+                        if id == 1 {
+                            let _ = sender.blocking_send(Event::PaletteRequested);
+                        } else {
+                            let _ = sender.blocking_send(Event::HotKeyTriggered(id));
+                        }
+                    }
+
+                    TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
                 }
             }
 
@@ -203,6 +224,7 @@ pub fn start_interceptor(sender: mpsc::Sender<Event>) -> HookHandle {
 
     HookHandle {
         is_running,
+        thread_id: thread_id_store,
         thread_handle: Some(thread_handle),
         watchdog_handle: Some(watchdog_handle),
     }

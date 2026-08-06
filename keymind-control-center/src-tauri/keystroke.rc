@@ -1,0 +1,6 @@
+// Windows resource script for KeyStroke
+// Embeds the application manifest into the binary
+#define CREATEPROCESS_MANIFEST_RESOURCE_ID 1
+#define RT_MANIFEST 24
+
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "keystroke.manifest"

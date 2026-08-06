@@ -57,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _learning_task = LearningEngine::start(learning_engine.enabled.clone(), db_pool.clone(), learning_engine.privacy.clone(), learning_rx);
 
     // 5. Initialize Typing Pipeline Controller
-    let _pipeline = Arc::new(TypingPipeline::new(
+    let pipeline = Arc::new(TypingPipeline::new(
         autocorrect,
         variables,
         grammar,
@@ -78,8 +78,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "windows")]
     {
         use keymind_interceptor_windows::KeymindWindowsInterceptor;
-        let (_rx, _handle, _injector) = KeymindWindowsInterceptor::start(100);
+        let (mut rx, _handle, injector) = KeymindWindowsInterceptor::start(100);
         info!("Windows Keyboard Interceptor (WH_KEYBOARD_LL) active.");
+        let pipeline_ref = pipeline.clone();
+        tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                match event {
+                    keymind_interceptor_windows::Event::WordCompleted { word, context } => {
+                        pipeline_ref.process_word(&word, &context, false).await;
+                    }
+                    keymind_interceptor_windows::Event::SensitiveFieldKeyPress => {
+                        // Skip processing for password fields
+                    }
+                    _ => {}
+                }
+            }
+        });
+        let _ = injector;
     }
 
     #[cfg(not(target_os = "windows"))]

@@ -4,18 +4,17 @@ on:
   push:
     tags:
       - 'v*'
-    branches:
-      - main
   workflow_dispatch:
 
 jobs:
-  release:
+  # ── macOS + Linux build (unchanged) ─────────────────────────────────────────
+  release-unix:
     permissions:
       contents: write
     strategy:
       fail-fast: false
       matrix:
-        platform: [macos-latest, ubuntu-22.04, windows-latest]
+        platform: [macos-latest, ubuntu-22.04]
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -49,6 +48,70 @@ jobs:
           projectPath: ./keymind-control-center
           tagName: v__VERSION__
           releaseName: 'KeyStroke v__VERSION__'
-          releaseBody: 'Cross-platform KeyStroke Desktop Release (.dmg, .AppImage, .deb, .msi, .exe).'
+          releaseBody: 'Cross-platform KeyStroke Desktop Release.'
           releaseDraft: false
           prerelease: false
+
+  # ── Windows build + SignPath code signing ───────────────────────────────────
+  release-windows:
+    permissions:
+      contents: write
+      id-token: write  # Required for SignPath OIDC authentication
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Node.js setup
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Rust setup
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: |
+          cd keymind-control-center
+          npm install
+
+      - name: Build Windows Application (Tauri)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: ./keymind-control-center
+          tagName: v__VERSION__
+          releaseName: 'KeyStroke v__VERSION__'
+          releaseBody: 'Windows release — signed by SignPath Foundation.'
+          releaseDraft: false
+          prerelease: false
+
+      # ── SignPath code signing ──────────────────────────────────────────────
+      # Prerequisites:
+      #   1. Apply at https://signpath.org/apply.html with this repo URL
+      #   2. After approval, add these GitHub Actions secrets:
+      #      - SIGNPATH_API_TOKEN  (from SignPath organization settings)
+      #      - SIGNPATH_ORGANIZATION_ID  (from SignPath organization settings)
+      #   3. Set SIGNPATH_PROJECT_SLUG and SIGNPATH_SIGNING_POLICY_SLUG below
+      #      to match what you configured in SignPath dashboard
+      #
+      # The signing step is conditional — it only runs when secrets are set.
+      # During development (before SignPath approval), the build still completes
+      # without signing. After approval, add the secrets and signing activates.
+      - name: Submit to SignPath for code signing
+        if: >
+          vars.SIGNPATH_ENABLED == 'true' &&
+          secrets.SIGNPATH_API_TOKEN != '' &&
+          secrets.SIGNPATH_ORGANIZATION_ID != ''
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: '${{ secrets.SIGNPATH_API_TOKEN }}'
+          organization-id: '${{ secrets.SIGNPATH_ORGANIZATION_ID }}'
+          project-slug: 'keystroke'
+          signing-policy-slug: 'release-signing'
+          github-artifact-id: 'keystroke-windows'
+          wait-for-completion: true
+          output-artifact-directory: 'signed-output'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

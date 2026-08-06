@@ -1,10 +1,10 @@
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 const DEFAULT_BIGRAMS_BIN: &[u8] = include_bytes!("../data/bigrams_en.bin");
 
 pub struct BigramModel {
     // (prev_word, word) -> score
-    pair_scores: HashMap<(String, String), f32>,
+    pair_scores: FxHashMap<(String, String), f32>,
 }
 
 impl Default for BigramModel {
@@ -15,7 +15,7 @@ impl Default for BigramModel {
 
 impl BigramModel {
     pub fn new() -> Self {
-        let mut pair_scores = HashMap::new();
+        let mut pair_scores = FxHashMap::default();
         let mut cursor = 0;
         let bytes = DEFAULT_BIGRAMS_BIN;
 

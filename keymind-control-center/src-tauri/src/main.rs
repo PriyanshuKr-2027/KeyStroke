@@ -168,6 +168,16 @@ fn save_store(store: &StoreData) {
     }
 }
 
+fn save_store_async(store: StoreData) {
+    tokio::spawn(async move {
+        tokio::task::spawn_blocking(move || {
+            save_store(&store);
+        })
+        .await
+        .ok();
+    });
+}
+
 pub struct AppState {
     pub store: Mutex<StoreData>,
 }
@@ -830,7 +840,7 @@ fn main() {
                                     };
                                     injector.inject_text(&expanded);
                                     store.daily_stats.variables_used += 1;
-                                    save_store(&store);
+                                    save_store_async(store.clone());
                                 } else {
                                     // 3. Multi-layered SymSpell + Bigram Context Re-ranking
                                     let sym = get_symspell();
@@ -859,7 +869,7 @@ fn main() {
                                                 category: "TYPOS".to_string(),
                                                 timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
                                             });
-                                            save_store(&store);
+                                            save_store_async(store.clone());
                                         }
                                     }
                                 }

@@ -158,14 +158,26 @@ pub async fn handle_shortcut_trigger(id: String) -> Result<String, String> {
 #[tauri::command]
 pub fn accept_prediction_word(word: String) -> Result<(), String> {
     let text_to_insert = format!("{} ", word);
-    if let Ok(mut cb) = Clipboard::new() {
-        if cb.set_text(text_to_insert).is_ok() {
-            simulate_paste();
-            info!("[Prediction] Accepted next word: '{}'", word);
-            return Ok(());
-        }
+
+    #[cfg(target_os = "windows")]
+    {
+        let injector = keymind_interceptor_windows::TextInjector::new();
+        injector.inject_text(&text_to_insert);
+        info!("[Prediction] Accepted next word via TextInjector: '{}'", word);
+        return Ok(());
     }
-    Err("Failed to write to clipboard".to_string())
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(mut cb) = Clipboard::new() {
+            if cb.set_text(text_to_insert).is_ok() {
+                simulate_paste();
+                info!("[Prediction] Accepted next word: '{}'", word);
+                return Ok(());
+            }
+        }
+        Err("Failed to write to clipboard".to_string())
+    }
 }
 
 fn simulate_paste() {

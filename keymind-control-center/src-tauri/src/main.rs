@@ -84,8 +84,16 @@ pub struct PersonalWordItem {
     pub date_added: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UserProfile {
+    pub first_name: String,
+    pub last_name: String,
+    pub email: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoreData {
+    pub profile: UserProfile,
     pub variables: Vec<Variable>,
     pub personal_words: Vec<PersonalWordItem>,
     pub learned_phrases: Vec<LearnedPhraseItem>,
@@ -98,6 +106,7 @@ pub struct StoreData {
 impl Default for StoreData {
     fn default() -> Self {
         Self {
+            profile: UserProfile::default(),
             variables: vec![],
             personal_words: vec![],
             learned_phrases: vec![],
@@ -558,12 +567,14 @@ pub struct AutocorrectResult {
     pub confidence: f32,
 }
 
+use keymind_autocorrect::bigram::BigramModel;
 use keymind_autocorrect::symspell_layer::SymSpellEngine;
 use keymind_autocorrect::TrigramPredictor;
 use std::sync::OnceLock;
 
 static SYMSPELL: OnceLock<SymSpellEngine> = OnceLock::new();
 static PREDICTOR: OnceLock<TrigramPredictor> = OnceLock::new();
+static BIGRAM_MODEL: OnceLock<BigramModel> = OnceLock::new();
 
 fn get_symspell() -> &'static SymSpellEngine {
     SYMSPELL.get_or_init(|| SymSpellEngine::new())
@@ -571,6 +582,10 @@ fn get_symspell() -> &'static SymSpellEngine {
 
 fn get_predictor() -> &'static TrigramPredictor {
     PREDICTOR.get_or_init(|| TrigramPredictor::new())
+}
+
+fn get_bigram_model() -> &'static BigramModel {
+    BIGRAM_MODEL.get_or_init(|| BigramModel::new())
 }
 
 #[tauri::command]
@@ -625,74 +640,52 @@ pub struct GrammarCheckResult {
     pub issues: Vec<String>,
 }
 
+static GRAMMAR_ENGINE: OnceLock<keymind_grammar::GrammarEngine> = OnceLock::new();
+
+fn get_grammar_engine() -> &'static keymind_grammar::GrammarEngine {
+    GRAMMAR_ENGINE.get_or_init(|| keymind_grammar::GrammarEngine::new(8081))
+}
+
 #[tauri::command]
-fn check_grammar_text(text: String, state: tauri::State<AppState>) -> GrammarCheckResult {
-    let mut fixed = text.clone();
-    let mut issues = Vec::new();
-    let mut new_fixes = Vec::new();
-
-    let rules: Vec<(&str, &str, &str)> = vec![
-        ("there books", "their books", "Incorrect possessive pronoun 'there' -> 'their'"),
-        ("there car", "their car", "Incorrect possessive pronoun 'there' -> 'their'"),
-        ("there house", "their house", "Incorrect possessive pronoun 'there' -> 'their'"),
-        ("he go", "he goes", "Subject-verb agreement: 'he go' -> 'he goes'"),
-        ("she go", "she goes", "Subject-verb agreement: 'she go' -> 'she goes'"),
-        ("i is", "i am", "Subject-verb agreement: 'i is' -> 'i am'"),
-        ("they is", "they are", "Subject-verb agreement: 'they is' -> 'they are'"),
-        ("the the", "the", "Duplicated word 'the'"),
-        ("a apple", "an apple", "Indefinite article: 'a apple' -> 'an apple'"),
-    ];
-
-    for (target, replacement, issue_msg) in rules {
-        let mut i = 0;
-        while i < fixed.len() {
-            let mut match_len = 0;
-            let mut lower_accum = String::new();
-            let mut found = false;
-            
-            for c in fixed[i..].chars() {
-                lower_accum.push_str(&c.to_lowercase().to_string());
-                match_len += c.len_utf8();
-                if lower_accum == target {
-                    found = true;
-                    break;
-                }
-                if !target.starts_with(&lower_accum) {
-                    break;
-                }
-            }
-
-            if found {
-                issues.push(issue_msg.to_string());
-                new_fixes.push(GrammarFix {
-                    id: format!("gf_{}", chrono::Utc::now().timestamp_millis()),
-                    original: target.to_string(),
-                    fixed: replacement.to_string(),
-                    rule_id: "rule_1".to_string(),
-                    category: "Grammar".to_string(),
-                    timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-                });
-                fixed.replace_range(i..i + match_len, replacement);
-                i += replacement.len();
-            } else if let Some(ch) = fixed[i..].chars().next() {
-                i += ch.len_utf8();
-            } else {
-                break;
-            }
-        }
+async fn check_grammar_text(text: String, state: tauri::State<'_, AppState>) -> Result<GrammarCheckResult, String> {
+    let clean = text.trim();
+    if clean.is_empty() {
+        return Ok(GrammarCheckResult {
+            original: text,
+            fixed: String::new(),
+            issues: vec![],
+        });
     }
 
-    if !new_fixes.is_empty() {
+    let engine = get_grammar_engine();
+    let issues_list = engine.check_text(clean, "en-US").await;
+    let fixed_text = engine.fix_text(clean).await;
+
+    let issue_messages: Vec<String> = issues_list.iter().map(|i| i.message.clone()).collect();
+
+    if !issues_list.is_empty() {
+        let new_fixes: Vec<GrammarFix> = issues_list
+            .into_iter()
+            .map(|i| GrammarFix {
+                id: format!("gf_{}", chrono::Utc::now().timestamp_millis()),
+                original: clean.to_string(),
+                fixed: fixed_text.clone(),
+                rule_id: i.rule_id,
+                category: i.category,
+                timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+            })
+            .collect();
+
         let mut store = state.store.lock().unwrap_or_else(|e| e.into_inner());
         store.grammar_fixes.extend(new_fixes);
         save_store(&store);
     }
 
-    GrammarCheckResult {
+    Ok(GrammarCheckResult {
         original: text,
-        fixed,
-        issues,
-    }
+        fixed: fixed_text,
+        issues: issue_messages,
+    })
 }
 
 #[tauri::command]
@@ -738,9 +731,13 @@ fn update_system_setting(_key: String, _value: bool, state: tauri::State<AppStat
 }
 
 #[tauri::command]
-fn save_profile(_first_name: String, _last_name: String, _email: String, state: tauri::State<AppState>) -> Result<(), String> {
-    let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
-    // Trigger store save even though profile isn't saved to StoreData currently
+fn save_profile(first_name: String, last_name: String, email: String, state: tauri::State<AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap_or_else(|e| e.into_inner());
+    store.profile = UserProfile {
+        first_name,
+        last_name,
+        email,
+    };
     save_store(&store);
     Ok(())
 }
@@ -809,35 +806,61 @@ fn main() {
                                     let _ = handle_shortcut_trigger(shortcut_name.to_string()).await;
                                 }
                             }
-                            keymind_interceptor_windows::Event::WordCompleted { word, context: _ } => {
+                            keymind_interceptor_windows::Event::WordCompleted { word, context } => {
                                 let state = app_handle.state::<AppState>();
-                                let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
+                                let mut store = state.store.lock().unwrap_or_else(|e| e.into_inner());
 
-                                // 1. Check custom variables (e.g. /email -> user@example.com)
-                                let replacement = store.variables.iter().find(|v| v.key.eq_ignore_ascii_case(&word)).and_then(|v| v.value.as_deref());
+                                // 1. Check personal dictionary whitelist
+                                if store.personal_words.iter().any(|w| w.word.eq_ignore_ascii_case(&word)) {
+                                    return;
+                                }
+
+                                // 2. Check custom variables (e.g. /email -> user@example.com)
+                                let replacement = store.variables.iter().find(|v| v.key.eq_ignore_ascii_case(&word)).and_then(|v| v.value.clone());
 
                                 if let Some(rep) = replacement {
                                     let injector = keymind_interceptor_windows::TextInjector::new();
                                     injector.send_backspaces(word.len());
-                                    injector.inject_text(rep);
+                                    let expanded = if rep.contains("{date}") {
+                                        rep.replace("{date}", &chrono::Local::now().format("%B %d, %Y").to_string())
+                                    } else if rep.contains("{time}") {
+                                        rep.replace("{time}", &chrono::Local::now().format("%H:%M:%S").to_string())
+                                    } else {
+                                        rep
+                                    };
+                                    injector.inject_text(&expanded);
+                                    store.daily_stats.variables_used += 1;
+                                    save_store(&store);
                                 } else {
-                                    // 2. Check static autocorrect dictionary
-                                    let static_autocorrect: std::collections::HashMap<&str, &str> = [
-                                        ("teh", "the"),
-                                        ("recieve", "receive"),
-                                        ("seperate", "separate"),
-                                        ("occured", "occurred"),
-                                        ("untill", "until"),
-                                        ("waht", "what"),
-                                        ("htat", "that"),
-                                        ("thier", "their"),
-                                        ("definately", "definitely"),
-                                    ].into_iter().collect();
+                                    // 3. Multi-layered SymSpell + Bigram Context Re-ranking
+                                    let sym = get_symspell();
+                                    let bigram = get_bigram_model();
+                                    if let Some((suggested, base_conf)) = sym.check(&word) {
+                                        let prev_word = context.split_whitespace().last().unwrap_or("");
+                                        let mut final_conf = base_conf;
 
-                                    if let Some(&corrected) = static_autocorrect.get(word.to_lowercase().as_str()) {
-                                        let injector = keymind_interceptor_windows::TextInjector::new();
-                                        injector.send_backspaces(word.len());
-                                        injector.inject_text(corrected);
+                                        if !prev_word.is_empty() {
+                                            if let Some(bg_score) = bigram.score(prev_word, &suggested) {
+                                                final_conf = (base_conf * 0.6 + bg_score * 0.4).min(0.99);
+                                            }
+                                        }
+
+                                        if final_conf >= 0.70 {
+                                            let injector = keymind_interceptor_windows::TextInjector::new();
+                                            injector.send_backspaces(word.len());
+                                            injector.inject_text(&suggested);
+
+                                            store.daily_stats.corrections_made += 1;
+                                            store.grammar_fixes.push(GrammarFix {
+                                                id: format!("gf_{}", chrono::Utc::now().timestamp_millis()),
+                                                original: word.clone(),
+                                                fixed: suggested.clone(),
+                                                rule_id: "symspell_bigram".to_string(),
+                                                category: "TYPOS".to_string(),
+                                                timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                                            });
+                                            save_store(&store);
+                                        }
                                     }
                                 }
                             }

@@ -3,10 +3,12 @@ use tauri::{AppHandle, Manager, PhysicalPosition};
 
 pub async fn open_palette(app: &AppHandle, context: CapturedContext) -> Result<(), String> {
     if let Some(palette) = app.get_window("palette") {
-        if let Ok(Some(monitor)) = palette.current_monitor() {
+        if let (Some(cx), Some(cy)) = (context.caret_x, context.caret_y) {
+            let _ = palette.set_position(PhysicalPosition::new(cx, cy));
+        } else if let Ok(Some(monitor)) = palette.current_monitor() {
             let size = monitor.size();
-            let x = (size.width as i32 / 2) - 280;
-            let y = (size.height as f64 * 0.38) as i32;
+            let x = (size.width as i32 / 2) - 290;
+            let y = (size.height as f64 * 0.35) as i32;
             let _ = palette.set_position(PhysicalPosition::new(x, y));
         }
 

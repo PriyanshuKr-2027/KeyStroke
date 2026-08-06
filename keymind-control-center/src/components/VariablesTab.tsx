@@ -4,7 +4,7 @@ import { CalloutCard } from "./CalloutCard";
 import { TableRowSkeleton } from "./Skeleton";
 import { EmptyState } from "./EmptyState";
 import { ErrorState } from "./ErrorState";
-import { Pencil, Trash2, X, Plus, Code, Zap, Sparkles, Layers } from "lucide-react";
+import { Pencil, Trash2, X, Plus, Search, Download, Upload } from "lucide-react";
 
 interface VariablesTabProps {
   variables: Variable[];
@@ -15,35 +15,44 @@ interface VariablesTabProps {
   isError?: boolean;
   errorMessage?: string;
   onRetry?: () => void;
+  onShowToast?: (title: string, message?: string, type?: "success" | "error" | "info") => void;
 }
 
 export const VariablesTab: React.FC<VariablesTabProps> = ({
   variables,
   onUpsert,
   onDelete,
-  onTest,
   isLoading = false,
   isError = false,
   errorMessage = "",
   onRetry,
+  onShowToast,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<"all" | "static" | "dynamic" | "ai">("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [showCallout, setShowCallout] = useState(true);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingVar, setEditingVar] = useState<Variable | null>(null);
 
-  // Form state
   const [keyInput, setKeyInput] = useState("");
   const [varType, setVarType] = useState<VariableType>("static");
   const [valueInput, setValueInput] = useState("");
   const [aiPromptInput, setAiPromptInput] = useState("");
 
   const filteredVariables = variables.filter((v) => {
-    if (activeSubTab === "static") return v.var_type === "static";
-    if (activeSubTab === "dynamic") return v.var_type === "dynamic";
-    if (activeSubTab === "ai") return v.var_type === "ai";
-    return true;
+    const matchesTab =
+      activeSubTab === "all" ||
+      (activeSubTab === "static" && v.var_type === "static") ||
+      (activeSubTab === "dynamic" && v.var_type === "dynamic") ||
+      (activeSubTab === "ai" && v.var_type === "ai");
+
+    const matchesSearch =
+      v.key.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (v.value && v.value.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (v.ai_prompt && v.ai_prompt.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    return matchesTab && matchesSearch;
   });
 
   const handleOpenAddModal = () => {
@@ -86,303 +95,210 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
     }
     onUpsert(updatedVar);
     setIsModalOpen(false);
+    if (onShowToast) onShowToast("Snippet Saved", `/${cleanKey} is ready to use`);
+  };
+
+  const handleExportJSON = () => {
+    const jsonStr = JSON.stringify(variables, null, 2);
+    const blob = new Blob([jsonStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "keystroke_snippets.json";
+    a.click();
+    if (onShowToast) onShowToast("Snippets Exported", "Exported JSON configuration pack", "info");
   };
 
   if (isError) {
     return (
-      <div className="max-w-[760px] mx-auto pt-6 pb-10">
+      <div className="max-w-[760px] mx-auto pt-6 pb-10 font-sans">
         <ErrorState
           title="Failed to load Snippets"
-          message={errorMessage || "Could not retrieve variables and snippets from KeyStroke engine."}
+          message={errorMessage || "Could not retrieve variables and snippets."}
           onRetry={onRetry}
         />
       </div>
     );
   }
 
-  const getEmptyStateDetails = () => {
-    if (activeSubTab === "static") {
-      return {
-        icon: Code,
-        title: "No static snippets yet",
-        description: "Static snippets expand trigger words like /email, /address, or /boilerplate into fixed text blocks.",
-        actionLabel: "Add static snippet",
-      };
-    }
-    if (activeSubTab === "dynamic") {
-      return {
-        icon: Zap,
-        title: "No dynamic variables yet",
-        description: "Dynamic variables auto-compute dynamic values such as current time, formatted dates, or clipboard content.",
-        actionLabel: "Add dynamic variable",
-      };
-    }
-    if (activeSubTab === "ai") {
-      return {
-        icon: Sparkles,
-        title: "No AI prompt templates yet",
-        description: "AI prompts send contextual instructions to Groq/Cerebras models to draft, summarize, or translate on the fly.",
-        actionLabel: "Add AI prompt template",
-      };
-    }
-    return {
-      icon: Layers,
-      title: "No snippets or variables saved",
-      description: "Save shortcuts for your most frequently typed text blocks, dates, and AI instructions.",
-      actionLabel: "Add your first snippet",
-    };
-  };
-
-  const emptyInfo = getEmptyStateDetails();
-
   return (
-    <div className="space-y-6 animate-fade-in max-w-[760px] mx-auto pb-10">
-      {/* Header Row */}
+    <div className="space-y-6 animate-fade-in max-w-[760px] mx-auto pb-10 font-sans select-none text-[#EDEDED]">
+      {/* Header Bar */}
       <div className="flex items-center justify-between">
-        <h1 className="font-sans text-[22px] font-semibold text-[#111111]">
+        <h1 className="text-[22px] font-semibold text-[#EDEDED] tracking-tight">
           Snippets & Variables
         </h1>
 
-        <button
-          onClick={handleOpenAddModal}
-          className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#111111] hover:bg-[#333333] text-[#FFFFFF] text-[14px] font-medium rounded-[8px] transition cursor-pointer"
-        >
-          <Plus className="w-4 h-4" /> Add new
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleExportJSON}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#28282D] hover:bg-[#333338] border border-[rgba(255,255,255,0.08)] rounded-[7px] text-[12px] font-medium text-[#8F8F96] hover:text-[#EDEDED] transition cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Export Pack</span>
+          </button>
+
+          <button
+            onClick={handleOpenAddModal}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#6366F1] hover:bg-[#4F46E5] text-white rounded-[7px] text-[13px] font-medium transition cursor-pointer shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
+            <span>New Snippet</span>
+          </button>
+        </div>
       </div>
 
-      {/* Sub-tab Bar */}
-      <div className="flex items-center gap-6 border-b border-[#EBEBEB] text-[14px]">
-        {[
-          { id: "all", label: "All" },
-          { id: "static", label: "Static" },
-          { id: "dynamic", label: "Dynamic" },
-          { id: "ai", label: "AI Prompts" },
-        ].map((tab) => {
-          const isActive = activeSubTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveSubTab(tab.id as any)}
-              className={`pb-2.5 font-normal transition-colors relative cursor-pointer ${
-                isActive ? "text-[#111111]" : "text-[#6B6B6B] hover:text-[#111111]"
-              }`}
-            >
-              {tab.label}
-              {isActive && (
-                <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#111111]" />
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Feature Callout Card */}
       {showCallout && (
         <CalloutCard
-          headline="The stuff you shouldn't have to retype."
-          body="Save shortcuts for everything you type all the time — emails, dates, addresses, templates. Type the trigger and KeyStroke expands it instantly."
-          chips={[
-            { trigger: "/email", arrow: "→", label: "alex@..." },
-            { trigger: "/date", arrow: "→", label: "August 5, 2026" },
-            { trigger: "/reply", arrow: "→", label: "AI draft" },
-          ]}
-          ctaLabel="Add new variable"
+          headline="Type less. Say more."
+          body="Create text expanders (e.g. /email -> user@example.com) or dynamic tokens ({date}, {time}). KeyStroke replaces them instantly as you type."
+          chips={[{ label: "/email" }, { label: "/zoom" }, { label: "{date}" }]}
+          ctaLabel="Add snippet"
           onCtaClick={handleOpenAddModal}
           onDismiss={() => setShowCallout(false)}
         />
       )}
 
-      {/* List Header */}
-      <div className="text-[11px] font-sans font-semibold tracking-wider text-[#AAAAAA] uppercase pt-2">
-        SNIPPETS & EXPANSIONS
+      {/* Filter & Search Bar */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-1 bg-[#1F1F23] p-1 rounded-[8px] border border-[rgba(255,255,255,0.08)] text-[12px] font-medium">
+          {(["all", "static", "dynamic", "ai"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setActiveSubTab(t)}
+              className={`px-3 py-1 rounded-[6px] capitalize transition cursor-pointer ${
+                activeSubTab === t
+                  ? "bg-[#28282D] text-[#EDEDED] shadow-sm"
+                  : "text-[#8F8F96] hover:text-[#EDEDED]"
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        <div className="relative flex-1 max-w-[240px]">
+          <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-[#8F8F96]" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search snippets…"
+            className="w-full bg-[#1F1F23] border border-[rgba(255,255,255,0.08)] rounded-[8px] pl-8 pr-3 py-1.5 text-[12px] text-[#EDEDED] placeholder-[#5C5C62] focus:outline-none focus:border-[#6366F1]"
+          />
+        </div>
       </div>
 
-      {/* List Rows */}
+      {/* Snippets List */}
       {isLoading ? (
         <TableRowSkeleton count={4} />
       ) : filteredVariables.length > 0 ? (
-        <div className="divide-y divide-[#EBEBEB] border-t border-b border-[#EBEBEB]">
-          {filteredVariables.map((v) => {
-            const displayExpansion =
-              v.var_type === "static"
-                ? v.value || "—"
-                : v.var_type === "dynamic"
-                ? new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
-                : v.ai_prompt || "Draft AI output";
-
-            return (
-              <div
-                key={v.key}
-                className="h-[48px] px-1 flex items-center justify-between hover:bg-[#FAFAFA] transition-colors group"
-              >
-                <div className="flex items-center gap-4 text-[14px]">
-                  <span className="font-mono text-[13px] font-normal text-[#111111] w-[80px]">
-                    /{v.key}
-                  </span>
-
-                  <span className="text-[#AAAAAA]">→</span>
-
-                  <span className="font-sans text-[#6B6B6B] max-w-[360px] truncate">
-                    {displayExpansion}
-                  </span>
-
-                  {v.var_type !== "static" && (
-                    <span className="px-2 py-0.5 bg-[#FFFFFF] border border-[#EBEBEB] text-[#6B6B6B] text-[11px] rounded-[4px] font-sans uppercase tracking-wider">
-                      {v.var_type}
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={() => {
-                      onTest(v.key)
-                        .then((res) => alert(`Test Output:\n${res}`))
-                        .catch((err) => alert(`Error:\n${err}`));
-                    }}
-                    className="text-[#AAAAAA] hover:text-[#22C55E] p-1 cursor-pointer transition"
-                    title="Test snippet"
-                  >
-                    <Zap className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleOpenEditModal(v)}
-                    className="text-[#AAAAAA] hover:text-[#111111] p-1 cursor-pointer transition"
-                    title="Edit snippet"
-                  >
-                    <Pencil className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => onDelete(v.key)}
-                    className="text-[#AAAAAA] hover:text-[#EF4444] p-1 cursor-pointer transition"
-                    title="Delete snippet"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
+        <div className="divide-y divide-[rgba(255,255,255,0.08)] border-t border-b border-[rgba(255,255,255,0.08)]">
+          {filteredVariables.map((v) => (
+            <div
+              key={v.key}
+              className="h-[52px] px-3 flex items-center justify-between hover:bg-[rgba(255,255,255,0.03)] transition rounded-[8px] group"
+            >
+              <div className="flex items-center gap-3">
+                <span className="px-2 py-0.5 bg-[rgba(99,102,241,0.12)] border border-[rgba(99,102,241,0.2)] rounded-[5px] font-mono text-[12px] font-semibold text-[#6366F1]">
+                  /{v.key}
+                </span>
+                <span className="text-[13px] text-[#EDEDED] truncate max-w-[320px]">
+                  {v.var_type === "static" ? v.value : v.var_type === "dynamic" ? "Dynamic {date/time}" : v.ai_prompt}
+                </span>
               </div>
-            );
-          })}
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleOpenEditModal(v)}
+                  className="p-1.5 text-[#8F8F96] hover:text-[#EDEDED] transition cursor-pointer"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => {
+                    onDelete(v.key);
+                    if (onShowToast) onShowToast("Deleted Snippet", `Deleted /${v.key}`, "info");
+                  }}
+                  className="p-1.5 text-[#8F8F96] hover:text-[#EF4444] transition cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       ) : (
         <EmptyState
-          icon={emptyInfo.icon}
-          title={emptyInfo.title}
-          description={emptyInfo.description}
-          actionLabel={emptyInfo.actionLabel}
+          icon={Search}
+          title="No snippets found"
+          description="Create text expansions or dynamic tokens."
+          actionLabel="Create Snippet"
           onAction={handleOpenAddModal}
         />
       )}
 
-      {/* Add / Edit Variable Modal */}
+      {/* Add / Edit Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="bg-[#FFFFFF] rounded-[16px] max-w-md w-full p-6 space-y-5 shadow-2xl border border-[#EBEBEB]">
-            <div className="flex items-center justify-between border-b border-[#EBEBEB] pb-3">
-              <h3 className="text-[18px] font-semibold text-[#111111]">
-                {editingVar ? "Edit Snippet / Variable" : "Add New Variable"}
-              </h3>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in">
+          <form
+            onSubmit={handleSaveModal}
+            className="w-[460px] bg-[#161618] border border-[rgba(255,255,255,0.12)] rounded-[14px] p-6 shadow-2xl space-y-4 animate-pop-in text-left"
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-[16px] font-semibold text-[#EDEDED]">
+                {editingVar ? "Edit Snippet" : "New Text Expansion Snippet"}
+              </h2>
               <button
+                type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="text-[#AAAAAA] hover:text-[#111111] p-1"
+                className="text-[#8F8F96] hover:text-[#EDEDED]"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveModal} className="space-y-4">
-              <div>
-                <label className="block text-[13px] font-medium text-[#111111] mb-1">
-                  Trigger Key (without leading /)
-                </label>
+            <div>
+              <label className="block text-[12px] font-medium text-[#EDEDED] mb-1">Trigger Shortcut</label>
+              <div className="flex items-center bg-[#1F1F23] border border-[rgba(255,255,255,0.08)] rounded-[8px] px-3 py-2">
+                <span className="font-mono text-[13px] text-[#6366F1] font-semibold mr-1">/</span>
                 <input
                   type="text"
-                  required
                   value={keyInput}
                   onChange={(e) => setKeyInput(e.target.value)}
-                  placeholder="e.g. email or date"
-                  className="w-full bg-[#F5F5F5] border border-[#EBEBEB] rounded-[8px] px-3.5 py-2 font-mono text-[13px] text-[#111111] focus:outline-none focus:ring-1 focus:ring-[#111111]"
+                  placeholder="email"
+                  className="w-full bg-transparent text-[13px] font-mono text-[#EDEDED] focus:outline-none"
                 />
               </div>
+            </div>
 
-              <div>
-                <label className="block text-[13px] font-medium text-[#111111] mb-1">
-                  Variable Type
-                </label>
-                <div className="flex bg-[#F5F5F5] p-1 rounded-[8px] gap-1">
-                  {(["static", "dynamic", "ai"] as VariableType[]).map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => setVarType(t)}
-                      className={`flex-1 py-1.5 text-[13px] font-medium rounded-[6px] transition cursor-pointer capitalize ${
-                        varType === t
-                          ? "bg-[#FFFFFF] text-[#111111] shadow-sm"
-                          : "text-[#6B6B6B] hover:text-[#111111]"
-                      }`}
-                    >
-                      {t === "ai" ? "AI Prompt" : t}
-                    </button>
-                  ))}
-                </div>
-              </div>
+            <div>
+              <label className="block text-[12px] font-medium text-[#EDEDED] mb-1">Expansion Content</label>
+              <textarea
+                rows={3}
+                value={valueInput}
+                onChange={(e) => setValueInput(e.target.value)}
+                placeholder="user@example.com"
+                className="w-full bg-[#1F1F23] border border-[rgba(255,255,255,0.08)] rounded-[8px] px-3.5 py-2 text-[13px] font-sans text-[#EDEDED] focus:outline-none resize-none"
+              />
+            </div>
 
-              {varType === "static" && (
-                <div>
-                  <label className="block text-[13px] font-medium text-[#111111] mb-1">
-                    Static Value
-                  </label>
-                  <textarea
-                    required
-                    rows={3}
-                    value={valueInput}
-                    onChange={(e) => setValueInput(e.target.value)}
-                    placeholder="Enter fixed snippet expansion..."
-                    className="w-full bg-[#F5F5F5] border border-[#EBEBEB] rounded-[8px] p-3 text-[14px] text-[#111111] focus:outline-none focus:ring-1 focus:ring-[#111111]"
-                  />
-                </div>
-              )}
-
-              {varType === "dynamic" && (
-                <div className="p-3 bg-[#F5F5F5] rounded-[8px] text-[13px] text-[#6B6B6B]">
-                  Dynamic variables resolve automatically at expansion time (e.g. current date, time, formatted timestamp).
-                </div>
-              )}
-
-              {varType === "ai" && (
-                <div>
-                  <label className="block text-[13px] font-medium text-[#111111] mb-1">
-                    AI Prompt Instructions
-                  </label>
-                  <textarea
-                    required
-                    rows={3}
-                    value={aiPromptInput}
-                    onChange={(e) => setAiPromptInput(e.target.value)}
-                    placeholder="e.g. Draft polite response to clipboard..."
-                    className="w-full bg-[#F5F5F5] border border-[#EBEBEB] rounded-[8px] p-3 text-[14px] text-[#111111] focus:outline-none focus:ring-1 focus:ring-[#111111]"
-                  />
-                </div>
-              )}
-
-              <div className="flex justify-end gap-3 pt-3 border-t border-[#EBEBEB]">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 rounded-[8px] border border-[#EBEBEB] text-[14px] text-[#6B6B6B] hover:text-[#111111]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded-[8px] bg-[#111111] text-[#FFFFFF] text-[14px] font-medium hover:bg-[#333333]"
-                >
-                  Save Variable
-                </button>
-              </div>
-            </form>
-          </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="px-4 py-2 bg-[#28282D] hover:bg-[#333338] text-[#EDEDED] rounded-[7px] text-[13px] font-medium transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 bg-[#6366F1] hover:bg-[#4F46E5] text-white rounded-[7px] text-[13px] font-medium transition cursor-pointer shadow-sm"
+              >
+                Save Snippet
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>

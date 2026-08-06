@@ -20,40 +20,67 @@ export const CopilotPalette: React.FC<CopilotPaletteProps> = ({
   onClose,
 }) => {
   const [promptInput, setPromptInput] = useState("");
+  const [history, setHistory] = useState<string[]>([]);
+  const [historyIdx, setHistoryIdx] = useState<number>(-1);
   const [statusState, setStatusState] = useState<"idle" | "loading" | "result" | "error">("idle");
   const [resultText, setResultText] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const hasTextField = Boolean(targetApp);
 
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    textareaRef.current?.focus();
+  }, [statusState]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        if (statusState === "loading") {
-          setStatusState("idle");
-        } else {
-          onClose();
-        }
+  // Handle keyboard events (History navigation, Escape, Shift+Enter)
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      if (statusState === "loading") {
+        setStatusState("idle");
+      } else {
+        onClose();
       }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [statusState, onClose]);
+    } else if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      executePrompt();
+    } else if (e.key === "ArrowUp") {
+      if (history.length > 0 && historyIdx < history.length - 1) {
+        e.preventDefault();
+        const newIdx = historyIdx + 1;
+        setHistoryIdx(newIdx);
+        setPromptInput(history[history.length - 1 - newIdx]);
+      }
+    } else if (e.key === "ArrowDown") {
+      if (historyIdx > 0) {
+        e.preventDefault();
+        const newIdx = historyIdx - 1;
+        setHistoryIdx(newIdx);
+        setPromptInput(history[history.length - 1 - newIdx]);
+      } else if (historyIdx === 0) {
+        e.preventDefault();
+        setHistoryIdx(-1);
+        setPromptInput("");
+      }
+    }
+  };
 
   const executePrompt = async () => {
-    if (!promptInput.trim()) return;
+    const trimmed = promptInput.trim();
+    if (!trimmed) return;
+
+    if (!history.includes(trimmed)) {
+      setHistory((prev) => [...prev, trimmed]);
+    }
+    setHistoryIdx(-1);
 
     setStatusState("loading");
-    if (onExecutePrompt) onExecutePrompt(promptInput);
+    if (onExecutePrompt) onExecutePrompt(trimmed);
 
     try {
       const res = await invoke<string>("run_copilot_prompt", {
-        prompt: promptInput,
+        prompt: trimmed,
         contextBefore: selectedText || "",
         contextAfter: "",
       });
@@ -65,64 +92,62 @@ export const CopilotPalette: React.FC<CopilotPaletteProps> = ({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    executePrompt();
-  };
-
   return (
-    <div className="fixed inset-0 bg-black/10 flex items-start justify-center pt-[38vh] z-50 select-none animate-fade-in font-sans">
-      <div className="w-[560px] bg-[#FFFFFF] border border-[#EBEBEB] rounded-[14px] shadow-2xl overflow-hidden text-[#111111]">
-        {/* Context Strip */}
-        <div className="bg-[#F5F5F5] border-b border-[#EBEBEB] px-3.5 py-2">
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-[11px] font-semibold text-[#6B6B6B] uppercase tracking-wider">
-              context
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-start justify-center pt-[28vh] z-50 select-none animate-fade-in font-sans">
+      <div className="w-[580px] bg-[#161618] border border-[rgba(255,255,255,0.12)] rounded-[14px] shadow-2xl overflow-hidden text-[#EDEDED] animate-pop-in">
+        {/* Context Bar */}
+        <div className="bg-[#1F1F23] border-b border-[rgba(255,255,255,0.08)] px-4 py-2 flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <span className="font-mono text-[10px] font-semibold text-[#6366F1] uppercase tracking-wider px-1.5 py-0.5 rounded bg-[rgba(99,102,241,0.12)] border border-[rgba(99,102,241,0.2)]">
+              CONTEXT
             </span>
-            <p className="font-sans text-[12px] text-[#6B6B6B] truncate flex-1">
-              {hasTextField ? (
-                <span className="font-medium text-[#111111]">"{selectedText}"</span>
+            <p className="font-sans text-[12px] text-[#8F8F96] truncate">
+              {selectedText ? (
+                <span className="font-medium text-[#EDEDED]">"{selectedText}"</span>
               ) : (
-                <span className="italic text-[#AAAAAA]">
-                  No text field focused — result will be copied to clipboard.
+                <span className="italic text-[#5C5C62]">
+                  {hasTextField ? `Focused in ${targetApp}` : "Global context — results copied to clipboard"}
                 </span>
               )}
             </p>
           </div>
         </div>
 
-        {/* Dynamic Body State */}
+        {/* Dynamic Body */}
         {statusState === "idle" && (
-          <form onSubmit={handleSubmit} className="px-3.5 py-3 flex items-center gap-3">
-            <div className="w-5 h-5 rounded-[5px] bg-[#111111] flex items-center justify-center text-[#FFFFFF]">
-              <Sparkles className="w-3 h-3" />
+          <div className="px-4 py-3 flex items-start gap-3">
+            <div className="w-6 h-6 rounded-[6px] bg-[#6366F1] flex items-center justify-center text-white shrink-0 mt-1 shadow-sm">
+              <Sparkles className="w-3.5 h-3.5" />
             </div>
 
-            <input
-              ref={inputRef}
-              type="text"
+            <textarea
+              ref={textareaRef}
+              rows={1}
               value={promptInput}
               onChange={(e) => setPromptInput(e.target.value)}
-              placeholder="Ask anything — rewrite, explain, continue, translate…"
-              className="flex-1 bg-transparent text-[14px] text-[#111111] placeholder-[#AAAAAA] focus:outline-none"
+              onKeyDown={handleKeyDown}
+              placeholder="Ask anything — rewrite, summarize, translate, explain…"
+              className="flex-1 bg-transparent text-[14px] text-[#EDEDED] placeholder-[#5C5C62] resize-none focus:outline-none min-h-[36px] max-h-[140px] leading-relaxed"
             />
 
-            <div className="px-1.5 py-0.5 bg-[#F5F5F5] border border-[#EBEBEB] rounded-[5px] text-[11px] font-mono text-[#6B6B6B]">
-              ↵ enter
+            <div className="flex items-center gap-1.5 shrink-0 self-center">
+              <span className="px-2 py-0.5 bg-[#28282D] border border-[rgba(255,255,255,0.08)] rounded-[5px] text-[10px] font-mono text-[#8F8F96]">
+                ↵ enter
+              </span>
             </div>
-          </form>
+          </div>
         )}
 
         {statusState === "loading" && (
-          <div className="p-3.5 space-y-3">
+          <div className="p-4 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="w-3.5 h-3.5 rounded-full border-2 border-[#111111] border-t-transparent animate-spin" />
-                <span className="text-[13px] font-medium text-[#111111]">
+                <div className="w-4 h-4 rounded-full border-2 border-[#6366F1] border-t-transparent animate-spin" />
+                <span className="text-[13px] font-medium text-[#EDEDED]">
                   "{promptInput}"
                 </span>
               </div>
-              <span className="font-mono text-[11px] text-[#AAAAAA]">
+              <span className="font-mono text-[11px] text-[#8F8F96]">
                 groq · llama-3.3-70b
               </span>
             </div>
@@ -131,21 +156,23 @@ export const CopilotPalette: React.FC<CopilotPaletteProps> = ({
         )}
 
         {statusState === "result" && (
-          <div className="p-3.5 space-y-3">
-            <p className="text-[14px] text-[#111111] leading-relaxed font-sans">
-              {resultText}
-            </p>
+          <div className="p-4 space-y-3">
+            <div className="max-h-[220px] overflow-y-auto pr-1">
+              <p className="text-[14px] text-[#EDEDED] leading-relaxed font-sans select-text whitespace-pre-wrap">
+                {resultText}
+              </p>
+            </div>
 
-            <div className="flex items-center gap-2 pt-1">
+            <div className="flex items-center gap-2 pt-2 border-t border-[rgba(255,255,255,0.08)]">
               {hasTextField && (
                 <button
                   onClick={() => {
                     onInsert(resultText);
                     onClose();
                   }}
-                  className="px-3 py-1.5 bg-[#111111] hover:bg-[#333333] text-[#FFFFFF] text-[13px] font-medium rounded-[6px] transition flex items-center gap-1.5 cursor-pointer"
+                  className="px-3.5 py-1.5 bg-[#6366F1] hover:bg-[#4F46E5] text-white text-[13px] font-medium rounded-[7px] transition flex items-center gap-1.5 cursor-pointer shadow-sm"
                 >
-                  <CornerDownLeft className="w-3.5 h-3.5" /> Insert
+                  <CornerDownLeft className="w-3.5 h-3.5" /> Insert into {targetApp}
                 </button>
               )}
 
@@ -154,14 +181,14 @@ export const CopilotPalette: React.FC<CopilotPaletteProps> = ({
                   navigator.clipboard.writeText(resultText);
                   onClose();
                 }}
-                className="px-3 py-1.5 bg-[#F0F0F0] hover:bg-[#E5E5E5] text-[#111111] text-[13px] font-medium rounded-[6px] transition flex items-center gap-1.5 cursor-pointer"
+                className="px-3.5 py-1.5 bg-[#28282D] hover:bg-[#333338] text-[#EDEDED] border border-[rgba(255,255,255,0.08)] text-[13px] font-medium rounded-[7px] transition flex items-center gap-1.5 cursor-pointer"
               >
                 <Copy className="w-3.5 h-3.5" /> Copy
               </button>
 
               <button
                 onClick={executePrompt}
-                className="px-3 py-1.5 bg-[#F0F0F0] hover:bg-[#E5E5E5] text-[#111111] text-[13px] font-medium rounded-[6px] transition flex items-center gap-1.5 cursor-pointer"
+                className="px-3.5 py-1.5 bg-[#28282D] hover:bg-[#333338] text-[#EDEDED] border border-[rgba(255,255,255,0.08)] text-[13px] font-medium rounded-[7px] transition flex items-center gap-1.5 cursor-pointer"
               >
                 <RotateCcw className="w-3.5 h-3.5" /> Retry
               </button>
@@ -170,7 +197,7 @@ export const CopilotPalette: React.FC<CopilotPaletteProps> = ({
         )}
 
         {statusState === "error" && (
-          <div className="p-3.5">
+          <div className="p-4">
             <ErrorState
               compact
               title="Copilot Error"
@@ -181,21 +208,13 @@ export const CopilotPalette: React.FC<CopilotPaletteProps> = ({
         )}
 
         {/* Footer Bar */}
-        <div className="border-t border-[#EBEBEB] px-3.5 py-1.5 flex items-center justify-between text-[11px] text-[#6B6B6B]">
-          <div className="flex items-center gap-1.5">
-            <span
-              className={`w-1.5 h-1.5 rounded-full ${
-                hasTextField ? "bg-[#22C55E]" : "bg-[#D1D5DB]"
-              }`}
-            />
-            <span>
-              {hasTextField
-                ? `Result types into ${targetApp}`
-                : "Result copied to clipboard"}
-            </span>
+        <div className="border-t border-[rgba(255,255,255,0.08)] px-4 py-2 flex items-center justify-between text-[11px] text-[#8F8F96] bg-[#1F1F23]">
+          <div className="flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E]" />
+            <span>↑↓ history · Shift+↵ newline</span>
           </div>
 
-          <span className="font-mono text-[#AAAAAA]">esc to close</span>
+          <span className="font-mono text-[#5C5C62]">esc to dismiss</span>
         </div>
       </div>
     </div>

@@ -10,8 +10,10 @@ import { SettingsTab } from "./components/SettingsTab";
 import { FirstRunWizard } from "./components/FirstRunWizard";
 import { SuggestionWidget } from "./components/SuggestionWidget";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { ToastContainer, ToastMessage } from "./components/Toast";
 import {
   EngineStatus,
+  EngineStatusType,
   DailyStats,
   AutocorrectFeedItem,
   Variable,
@@ -30,14 +32,25 @@ export const App: React.FC = () => {
     return localStorage.getItem("keystroke_onboarding_done") !== "true";
   });
 
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const showToast = (title: string, message?: string, type: "success" | "error" | "info" = "success") => {
+    const id = `toast_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    setToasts((prev) => [...prev, { id, title, message, type }]);
+  };
+
+  const handleDismissToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
   const handleWizardComplete = () => {
     localStorage.setItem("keystroke_onboarding_done", "true");
     setShowWizard(false);
+    showToast("Setup Complete", "KeyStroke is ready to use", "success");
   };
 
   const [activePrediction, setActivePrediction] = useState<ActivePrediction | null>(null);
 
-  // State initialization connected to backend
   const [engineStatus, setEngineStatus] = useState<EngineStatus>({
     engine: "running",
     ai: "connected",
@@ -62,7 +75,6 @@ export const App: React.FC = () => {
   const [grammarFixes, setGrammarFixes] = useState<GrammarFix[]>([]);
   const [apps, setApps] = useState<AppSettings[]>([]);
 
-  // Top-level loading and error state
   const [isLoading, setIsLoading] = useState(true);
   const [isError, setIsError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -108,7 +120,17 @@ export const App: React.FC = () => {
     loadAllData();
   }, []);
 
-  // Variable CRUD
+  const handleToggleEngine = () => {
+    const isRunning = engineStatus.engine === "running";
+    const nextState: EngineStatusType = isRunning ? "stopped" : "running";
+    setEngineStatus((prev) => ({ ...prev, engine: nextState }));
+    showToast(
+      isRunning ? "Interceptor Paused" : "Interceptor Resumed",
+      isRunning ? "Keyboard interception is temporarily paused" : "Keyboard hook is listening system-wide",
+      isRunning ? "info" : "success"
+    );
+  };
+
   const handleUpsertVariable = (v: Variable) => {
     invoke("upsert_variable", { v })
       .then(() => {
@@ -167,9 +189,7 @@ export const App: React.FC = () => {
   const handleAcceptPrediction = async (word: string) => {
     try {
       await invoke("accept_prediction_word", { word });
-    } catch (e) {
-      console.log("Accept prediction word error:", e);
-    }
+    } catch (e) {}
     setActivePrediction(null);
   };
 
@@ -177,134 +197,127 @@ export const App: React.FC = () => {
     setActivePrediction(null);
   };
 
-  useEffect(() => {
-    if (!activePrediction) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Tab") {
-        e.preventDefault();
-        handleAcceptPrediction(activePrediction.candidate_word);
-      } else if (e.key === "Escape") {
-        handleDismissPrediction();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activePrediction]);
-
   return (
-    <div className="flex h-screen bg-[#FFFFFF] text-[#111111] overflow-hidden select-none relative font-sans">
+    <div className="flex h-screen bg-[#0D0D0E] text-[#EDEDED] overflow-hidden select-none relative font-sans">
+      {/* Toast Notification Layer */}
+      <ToastContainer toasts={toasts} onDismiss={handleDismissToast} />
+
       {/* Onboarding Wizard if first run */}
       {showWizard && (
         <FirstRunWizard
           onComplete={handleWizardComplete}
           onCheckAccessibility={async () => true}
-          onSaveApiKey={async (key) => key.startsWith("gsk_") || key.length > 10}
-          onSaveAiKeys={async (groqKey, cerebrasKey) => {
-            try {
-              return await invoke<{ groq_valid: boolean; cerebras_valid: boolean }>(
-                "save_ai_provider_keys",
-                { groqKey, cerebrasKey }
-              );
-            } catch (e) {
-              return { groq_valid: false, cerebras_valid: false };
-            }
-          }}
-          onInstallLaunchAgent={async () => true}
         />
       )}
 
-      {/* Fixed 200px Left Sidebar */}
+      {/* Fixed 220px Left Sidebar */}
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         engineRunning={engineStatus.engine === "running"}
+        onToggleEngine={handleToggleEngine}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenWizard={() => setShowWizard(true)}
       />
 
-      {/* Scrollable Right Content Area */}
-      <ErrorBoundary>
-        <main className="flex-1 overflow-y-auto px-12 pt-10 pb-16 relative bg-[#FFFFFF]">
-        {activeTab === "dashboard" && (
-          <DashboardTab
-            status={engineStatus}
-            stats={dailyStats}
-            feed={feed}
-            isLoading={isLoading}
-            isError={isError}
-            errorMessage={errorMessage}
-            onRetry={loadAllData}
-          />
-        )}
+      {/* Scrollable Main Content Area with Drag Region Header */}
+      <div className="flex-1 flex flex-col h-screen overflow-hidden bg-[#0D0D0E]">
+        {/* Top Window Drag Region Bar */}
+        <div data-tauri-drag-region className="h-[44px] shrink-0 border-b border-[rgba(255,255,255,0.08)] bg-[#0D0D0E] flex items-center justify-end px-4 cursor-default">
+          <span className="font-mono text-[11px] text-[#5C5C62]">KeyStroke Desktop v0.1.0</span>
+        </div>
 
-        {activeTab === "memory" && (
-          <MemoryTab
-            onAddWord={async (word) => {
-              try { await invoke("add_personal_word", { word }); loadAllData(); }
-              catch (e) { console.error("Failed to add word:", e); }
-            }}
-            onDeleteWord={async (id) => {
-              try { await invoke("delete_personal_word", { id }); loadAllData(); }
-              catch (e) { console.error("Failed to delete word:", e); }
-            }}
-            isLoading={isLoading}
-            isError={isError}
-            errorMessage={errorMessage}
-            onRetry={loadAllData}
-          />
-        )}
+        <ErrorBoundary>
+          <main className="flex-1 overflow-y-auto px-10 pt-6 pb-16 relative">
+            {activeTab === "dashboard" && (
+              <DashboardTab
+                status={engineStatus}
+                stats={dailyStats}
+                feed={feed}
+                isLoading={isLoading}
+                isError={isError}
+                errorMessage={errorMessage}
+                onRetry={loadAllData}
+                onShowToast={showToast}
+              />
+            )}
 
-        {activeTab === "variables" && (
-          <VariablesTab
-            variables={variables}
-            onUpsert={handleUpsertVariable}
-            onDelete={handleDeleteVariable}
-            onTest={handleTestVariable}
-            isLoading={isLoading}
-            isError={isError}
-            errorMessage={errorMessage}
-            onRetry={loadAllData}
-          />
-        )}
+            {activeTab === "memory" && (
+              <MemoryTab
+                onAddWord={async (word) => {
+                  try {
+                    await invoke("add_personal_word", { word });
+                    loadAllData();
+                    showToast("Dictionary Updated", `Added "${word}" to personal dictionary`);
+                  } catch (e) {}
+                }}
+                onDeleteWord={async (id) => {
+                  try {
+                    await invoke("delete_personal_word", { id });
+                    loadAllData();
+                    showToast("Word Removed", "Removed from dictionary", "info");
+                  } catch (e) {}
+                }}
+                isLoading={isLoading}
+                isError={isError}
+                errorMessage={errorMessage}
+                onRetry={loadAllData}
+              />
+            )}
 
-        {activeTab === "grammar" && (
-          <GrammarTab
-            status={grammarStatus}
-            fixes={grammarFixes}
-            onToggle={handleToggleGrammar}
-            onModeChange={handleModeChange}
-            isLoading={isLoading}
-            isError={isError}
-            errorMessage={errorMessage}
-            onRetry={loadAllData}
-          />
-        )}
+            {activeTab === "variables" && (
+              <VariablesTab
+                variables={variables}
+                onUpsert={handleUpsertVariable}
+                onDelete={handleDeleteVariable}
+                onTest={handleTestVariable}
+                isLoading={isLoading}
+                isError={isError}
+                errorMessage={errorMessage}
+                onRetry={loadAllData}
+                onShowToast={showToast}
+              />
+            )}
 
-        {activeTab === "apps" && (
-          <AppsTab
-            apps={apps}
-            onUpdateApp={handleUpdateApp}
-            isLoading={isLoading}
-            isError={isError}
-            errorMessage={errorMessage}
-            onRetry={loadAllData}
-          />
-        )}
+            {activeTab === "grammar" && (
+              <GrammarTab
+                status={grammarStatus}
+                fixes={grammarFixes}
+                onToggle={handleToggleGrammar}
+                onModeChange={handleModeChange}
+                isLoading={isLoading}
+                isError={isError}
+                errorMessage={errorMessage}
+                onRetry={loadAllData}
+                onShowToast={showToast}
+              />
+            )}
 
-        {activeTab === "shortcuts" && (
-          <ShortcutsTab
-            isLoading={isLoading}
-            isError={isError}
-            errorMessage={errorMessage}
-            onRetry={loadAllData}
-          />
-        )}
-      </main>
-      </ErrorBoundary>
+            {activeTab === "apps" && (
+              <AppsTab
+                apps={apps}
+                onUpdateApp={handleUpdateApp}
+                isLoading={isLoading}
+                isError={isError}
+                errorMessage={errorMessage}
+                onRetry={loadAllData}
+              />
+            )}
 
-      {/* Settings Modal Overlay */}
+            {activeTab === "shortcuts" && (
+              <ShortcutsTab
+                isLoading={isLoading}
+                isError={isError}
+                errorMessage={errorMessage}
+                onRetry={loadAllData}
+                onShowToast={showToast}
+              />
+            )}
+          </main>
+        </ErrorBoundary>
+      </div>
+
+      {/* Settings Modal */}
       <SettingsTab
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}

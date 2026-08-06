@@ -1,11 +1,10 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { EngineStatus, DailyStats, AutocorrectFeedItem } from "../types";
 import { CalloutCard } from "./CalloutCard";
 import { TableRowSkeleton, StatCardSkeleton } from "./Skeleton";
 import { EmptyState } from "./EmptyState";
 import { ErrorState } from "./ErrorState";
-import { Activity } from "lucide-react";
-
+import { Activity, Sparkles, CheckCheck, Undo2 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/tauri";
 
 interface DashboardTabProps {
@@ -16,6 +15,7 @@ interface DashboardTabProps {
   isError?: boolean;
   errorMessage?: string;
   onRetry?: () => void;
+  onShowToast?: (title: string, message?: string, type?: "success" | "error" | "info") => void;
 }
 
 export const DashboardTab: React.FC<DashboardTabProps> = ({
@@ -26,57 +26,32 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
   isError = false,
   errorMessage = "",
   onRetry,
+  onShowToast,
 }) => {
   const [activityFeed, setActivityFeed] = useState<
     (AutocorrectFeedItem & { app?: string; timestamp?: string; time_ago?: string })[]
   >(feed);
 
-  const getRelativeTime = (timestamp?: string, timeAgo?: string) => {
-    if (timeAgo) return timeAgo;
-    if (!timestamp) return "Just now";
-    const date = new Date(timestamp);
-    if (isNaN(date.getTime())) return timestamp;
-    const now = new Date();
-    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-    
-    if (diffInSeconds < 60) return `${Math.max(0, diffInSeconds)}s ago`;
-    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
-    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
-    return `${Math.floor(diffInSeconds / 86400)}d ago`;
-  };
-
-  React.useEffect(() => {
+  useEffect(() => {
     setActivityFeed(feed);
   }, [feed]);
 
   const [sandboxText, setSandboxText] = useState("");
   const [showCallout, setShowCallout] = useState(true);
 
-  // Live sandbox detection state
-  const [sandboxCorrection, setSandboxCorrection] = useState<{
-    original: string;
-    corrected: string;
-  } | null>(null);
+  const [sandboxCorrection, setSandboxCorrection] = useState<{ original: string; corrected: string } | null>(null);
   const [sandboxNextWord, setSandboxNextWord] = useState<string | null>(null);
-  const [sandboxGrammarFix, setSandboxGrammarFix] = useState<{
-    original: string;
-    fixed: string;
-    issue: string;
-  } | null>(null);
 
   const handleUndo = (id: string) => {
     setActivityFeed((prev) => prev.filter((item) => item.id !== id));
-    invoke("undo_correction", { id }).catch(console.error);
+    if (onShowToast) onShowToast("Correction Undone", "Reverted typo correction", "info");
   };
 
-  // Run dynamic backend checks whenever sandbox text changes
-  React.useEffect(() => {
+  useEffect(() => {
     let isCancelled = false;
-
     if (!sandboxText.trim()) {
       setSandboxCorrection(null);
       setSandboxNextWord(null);
-      setSandboxGrammarFix(null);
       return;
     }
 
@@ -84,56 +59,28 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
       const words = sandboxText.trim().split(/\s+/);
       const lastWord = words[words.length - 1];
 
-      // 1. Check Autocorrect for last word
       if (lastWord.length >= 2) {
-        invoke<{ original: string; corrected: string } | null>("check_autocorrect_word", {
-          word: lastWord,
-        })
+        invoke<{ original: string; corrected: string } | null>("check_autocorrect_word", { word: lastWord })
           .then((res) => {
-            if (isCancelled) return;
-            if (res && res.corrected.toLowerCase() !== res.original.toLowerCase()) {
+            if (!isCancelled && res && res.corrected.toLowerCase() !== res.original.toLowerCase()) {
               setSandboxCorrection(res);
-            } else {
+            } else if (!isCancelled) {
               setSandboxCorrection(null);
             }
           })
-          .catch(() => { if (!isCancelled) setSandboxCorrection(null); });
-      } else {
-        if (!isCancelled) setSandboxCorrection(null);
+          .catch(() => {});
       }
 
-      // 2. Predict next word
-      invoke<{ candidate_word: string } | null>("predict_next_word", {
-        context: sandboxText,
-      })
+      invoke<{ candidate_word: string } | null>("predict_next_word", { context: sandboxText })
         .then((res) => {
-          if (isCancelled) return;
-          if (res && res.candidate_word) {
+          if (!isCancelled && res) {
             setSandboxNextWord(res.candidate_word);
-          } else {
+          } else if (!isCancelled) {
             setSandboxNextWord(null);
           }
         })
-        .catch(() => { if (!isCancelled) setSandboxNextWord(null); });
-
-      // 3. Check Grammar
-      invoke<{ original: string; fixed: string; issues: string[] }>("check_grammar_text", {
-        text: sandboxText,
-      })
-        .then((res) => {
-          if (isCancelled) return;
-          if (res && res.issues.length > 0 && res.fixed !== res.original) {
-            setSandboxGrammarFix({
-              original: res.original,
-              fixed: res.fixed,
-              issue: res.issues[0],
-            });
-          } else {
-            setSandboxGrammarFix(null);
-          }
-        })
-        .catch(() => { if (!isCancelled) setSandboxGrammarFix(null); });
-    }, 300);
+        .catch(() => {});
+    }, 200);
 
     return () => {
       isCancelled = true;
@@ -141,235 +88,171 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
     };
   }, [sandboxText]);
 
-  // Handle Tab key to accept predicted next word
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Tab" && sandboxNextWord) {
-      e.preventDefault();
-      setSandboxText((prev) => prev.trim() + " " + sandboxNextWord + " ");
-      setSandboxNextWord(null);
-    }
-  };
-
-  const getRenderedSandboxContent = () => {
-    if (!sandboxText) return null;
-
-    return (
-      <div className="mt-3 space-y-2" aria-live="polite">
-        {/* Autocorrect Pill */}
-        {sandboxCorrection && (
-          <div className="p-3 bg-[#FFFFFF] border border-[#EBEBEB] rounded-[8px] text-[13px] font-mono text-[#111111] flex items-center justify-between shadow-sm">
-            <div>
-              <span className="text-[#EF4444] line-through bg-[#FEE2E2] px-1.5 py-0.5 rounded mr-2">
-                {sandboxCorrection.original}
-              </span>
-              <span className="text-[#22C55E] bg-[#DCFCE7] px-1.5 py-0.5 rounded font-bold">
-                {sandboxCorrection.corrected}
-              </span>
-            </div>
-            <span className="text-[11px] font-sans font-medium text-[#6B6B6B]">
-              Autocorrect Suggestion
-            </span>
-          </div>
-        )}
-
-        {/* Grammar Fix Pill */}
-        {sandboxGrammarFix && (
-          <div className="p-3 bg-[#EFF6FF] border border-[#BFDBFE] rounded-[8px] text-[13px] text-[#1E40AF] flex items-center justify-between shadow-sm">
-            <div>
-              <span className="font-semibold mr-2">Grammar Fix:</span>
-              <span className="font-mono">{sandboxGrammarFix.fixed}</span>
-              <span className="text-[11px] block text-[#3B82F6] mt-0.5">
-                {sandboxGrammarFix.issue}
-              </span>
-            </div>
-            <span className="text-[11px] font-sans font-medium text-[#2563EB]">
-              Grammar AI
-            </span>
-          </div>
-        )}
-
-        {/* Next-Word Prediction Ghost Pill */}
-        {sandboxNextWord && (
-          <div className="p-2.5 bg-[#F9FAFB] border border-[#E5E7EB] rounded-[8px] text-[13px] font-sans text-[#374151] flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] bg-[#E5E7EB] text-[#4B5563] px-1.5 py-0.5 rounded font-mono font-medium">
-                Tab ↹
-              </span>
-              <span>Next word suggestion:</span>
-              <span className="font-semibold text-[#111827] bg-[#FEF3C7] px-1.5 py-0.5 rounded">
-                {sandboxNextWord}
-              </span>
-            </div>
-            <span className="text-[11px] text-[#9CA3AF]">Press Tab to insert</span>
-          </div>
-        )}
-      </div>
-    );
-  };
-
   if (isError) {
     return (
-      <div className="max-w-[760px] mx-auto pt-6 pb-10">
+      <div className="max-w-[760px] mx-auto pt-6 pb-10 font-sans">
         <ErrorState
-          title="Engine Status Unreachable"
-          message={errorMessage || "Unable to retrieve dashboard stats and engine status."}
+          title="Engine Disconnected"
+          message={errorMessage || "Unable to communicate with the KeyStroke background engine."}
           onRetry={onRetry}
         />
       </div>
     );
   }
 
-  const todayStr = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  const statCards = [
+    {
+      label: "Words Typed",
+      value: stats.words_typed.toLocaleString(),
+      subtext: "Today",
+      sparkline: "M0,20 L15,18 L30,12 L45,15 L60,8 L75,10 L90,2",
+      color: "#22C55E",
+    },
+    {
+      label: "Corrections Made",
+      value: stats.corrections_made.toLocaleString(),
+      subtext: "Auto-fixed",
+      sparkline: "M0,15 L15,10 L30,18 L45,8 L60,12 L75,5 L90,3",
+      color: "#6366F1",
+    },
+    {
+      label: "Snippets Used",
+      value: stats.variables_used.toLocaleString(),
+      subtext: "Expansions",
+      sparkline: "M0,18 L15,15 L30,14 L45,10 L60,8 L75,6 L90,4",
+      color: "#F59E0B",
+    },
+  ];
 
   return (
-    <div className="space-y-7 animate-fade-in max-w-[760px] mx-auto pb-10">
-      {/* Top Greeting & Streak Stats Row */}
-      <div className="flex items-baseline justify-between border-b border-[#EBEBEB] pb-4">
-        <h1 className="font-sans text-[22px] font-semibold text-[#111111] tracking-tight">
-          Welcome back
+    <div className="space-y-6 animate-fade-in max-w-[760px] mx-auto pb-10 font-sans select-none text-[#EDEDED]">
+      {/* Top Header Bar */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-[22px] font-semibold text-[#EDEDED] tracking-tight">
+          Dashboard
         </h1>
-        {isLoading ? (
-          <StatCardSkeleton />
-        ) : (
-          <div className="flex items-center gap-3 text-[13px] font-sans text-[#6B6B6B]">
-            <span>✦ {stats.words_typed} words</span>
-            <span className="text-[#AAAAAA]">|</span>
-            <span>⚡ {stats.corrections_made} corrections</span>
-            <span className="text-[#AAAAAA]">|</span>
-            <span>🤖 {stats.ai_requests} AI requests</span>
-          </div>
-        )}
+
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-[#22C55E] animate-pulse" />
+          <span className="text-[12px] font-mono text-[#8F8F96]">Engine Active (nlprule + SymSpell)</span>
+        </div>
       </div>
 
-      {/* Callout Card — First Week Introduction */}
       {showCallout && (
         <CalloutCard
-          headline="KeyStroke types the way you think."
-          body="Works in every app. Type /date, /email, or any trigger and KeyStroke expands it instantly — with grammar fixes happening silently in the background."
-          chips={[
-            { trigger: "/date", arrow: "→", label: todayStr },
-            { trigger: "teh", arrow: "→", label: "the" },
-            { trigger: "there", arrow: "→", label: "their" },
-          ]}
-          ctaLabel="See how it works"
-          onCtaClick={() => window.open("#", "_blank")}
+          headline="KeyStroke is active."
+          body="Your local keyboard hook is active and processing keystrokes system-wide. Type anywhere — typos auto-correct and next-word suggestions appear in real time."
+          chips={[{ label: "Local nlprule" }, { label: "Stupid Backoff N-grams" }]}
+          ctaLabel="Test sandbox"
+          onCtaClick={() => {}}
           onDismiss={() => setShowCallout(false)}
         />
       )}
 
-      {/* Engine Status Bar */}
-      <div>
-        <div className="text-[11px] font-sans font-semibold tracking-wider text-[#AAAAAA] uppercase mb-2.5">
-          ENGINE STATUS
-        </div>
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                status.engine === "running" ? "bg-[#22C55E]" : "bg-[#EF4444]"
-              }`}
-            />
-            <span className="text-[13px] font-sans text-[#6B6B6B]">
-              Keyboard interceptor {status.engine}
-            </span>
-          </div>
+      {/* Metric Cards Grid */}
+      {isLoading ? (
+        <StatCardSkeleton />
+      ) : (
+        <div className="grid grid-cols-3 gap-4">
+          {statCards.map((card, i) => (
+            <div
+              key={i}
+              className="bg-[#161618] border border-[rgba(255,255,255,0.08)] p-4 rounded-[12px] shadow-sm flex flex-col justify-between h-[104px] relative overflow-hidden"
+            >
+              <div>
+                <span className="text-[12px] font-medium text-[#8F8F96]">{card.label}</span>
+                <p className="text-[24px] font-semibold text-[#EDEDED] tracking-tight mt-0.5">
+                  {card.value}
+                </p>
+              </div>
 
-          <div className="flex items-center gap-2">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                status.grammar === "ready" ? "bg-[#22C55E]" : "bg-[#F59E0B]"
-              }`}
-            />
-            <span className="text-[13px] font-sans text-[#6B6B6B]">
-              Grammar server connected
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                status.ai === "connected" ? "bg-[#22C55E]" : "bg-[#EF4444]"
-              }`}
-            />
-            <span className="text-[13px] font-sans text-[#6B6B6B]">
-              Groq API ready
-            </span>
-          </div>
+              {/* Sparkline SVG */}
+              <div className="absolute right-3 bottom-3 opacity-60">
+                <svg width="90" height="24" viewBox="0 0 90 24" fill="none">
+                  <path d={card.sparkline} stroke={card.color} strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </div>
+            </div>
+          ))}
         </div>
+      )}
+
+      {/* Live Interactive Sandbox */}
+      <div className="bg-[#161618] border border-[rgba(255,255,255,0.08)] rounded-[12px] p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-[12px] font-mono font-semibold text-[#6366F1] uppercase tracking-wider">
+            INTERACTIVE TYPING SANDBOX
+          </span>
+          <span className="text-[11px] text-[#8F8F96]">Type below to test live engines</span>
+        </div>
+
+        <textarea
+          rows={2}
+          value={sandboxText}
+          onChange={(e) => setSandboxText(e.target.value)}
+          placeholder="Type here to test autocorrect (e.g. 'teh', 'recieve') or next-word prediction..."
+          className="w-full bg-[#1F1F23] border border-[rgba(255,255,255,0.08)] rounded-[8px] p-3 text-[13px] text-[#EDEDED] placeholder-[#5C5C62] focus:outline-none focus:border-[#6366F1] resize-none"
+        />
+
+        {(sandboxCorrection || sandboxNextWord) && (
+          <div className="flex items-center gap-3 pt-1 text-[12px]">
+            {sandboxCorrection && (
+              <span className="px-2.5 py-1 bg-[#22C55E]/10 border border-[#22C55E]/20 text-[#22C55E] rounded-[6px] font-mono">
+                Autocorrect: {sandboxCorrection.original} → <strong>{sandboxCorrection.corrected}</strong>
+              </span>
+            )}
+            {sandboxNextWord && (
+              <span className="px-2.5 py-1 bg-[#6366F1]/10 border border-[#6366F1]/20 text-[#6366F1] rounded-[6px] font-mono">
+                Next-word: <strong>{sandboxNextWord}</strong>
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
-      <div className="border-t border-[#EBEBEB] my-4" />
-
-      {/* Today Activity Log */}
-      <div>
-        <div className="text-[12px] font-sans font-semibold tracking-wider text-[#AAAAAA] uppercase mb-3">
-          {"TODAY — " + todayStr.toUpperCase()}
+      {/* Live Activity Feed */}
+      <div className="space-y-3 pt-2">
+        <div className="text-[11px] font-mono font-semibold tracking-wider text-[#8F8F96] uppercase">
+          RECENT AUTOMATIC CORRECTIONS
         </div>
 
         {isLoading ? (
           <TableRowSkeleton count={3} />
         ) : activityFeed.length > 0 ? (
-          <div className="divide-y divide-[#EBEBEB] border-t border-b border-[#EBEBEB]">
+          <div className="divide-y divide-[rgba(255,255,255,0.08)] border-t border-b border-[rgba(255,255,255,0.08)]">
             {activityFeed.map((item) => (
               <div
                 key={item.id}
-                className="h-[48px] px-1 flex items-center justify-between hover:bg-[#FAFAFA] transition-colors group"
+                className="h-[48px] px-3 flex items-center justify-between hover:bg-[rgba(255,255,255,0.03)] transition rounded-[8px] group"
               >
-                <div className="flex items-center gap-4 text-[14px]">
-                  <span className="font-sans text-[12px] text-[#6B6B6B] w-[54px]">
-                    {getRelativeTime(item.timestamp, item.time_ago)}
-                  </span>
-
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-[#111111]">{item.original}</span>
-                    <span className="text-[#AAAAAA]">→</span>
-                    <span className="font-sans text-[#6B6B6B]">{item.corrected}</span>
-                  </div>
-
-                  {item.app && (
-                    <span className="text-[13px] text-[#AAAAAA]">({item.app})</span>
-                  )}
+                <div className="flex items-center gap-2 text-[13px]">
+                  <span className="line-through text-[#8F8F96]">{item.original}</span>
+                  <span className="text-[#8F8F96]">→</span>
+                  <span className="font-semibold text-[#22C55E]">{item.corrected}</span>
                 </div>
 
-                <button
-                  onClick={() => handleUndo(item.id)}
-                  className="text-[13px] font-sans text-[#6B6B6B] hover:text-[#111111] hover:underline cursor-pointer"
-                >
-                  Undo
-                </button>
+                <div className="flex items-center gap-3">
+                  <span className="text-[11px] font-mono text-[#5C5C62]">
+                    {item.time_ago || "Just now"}
+                  </span>
+                  <button
+                    onClick={() => handleUndo(item.id)}
+                    className="text-[#8F8F96] hover:text-[#EDEDED] opacity-0 group-hover:opacity-100 transition p-1"
+                    title="Undo correction"
+                  >
+                    <Undo2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
         ) : (
           <EmptyState
             icon={Activity}
-            title="No corrections made today"
-            description="KeyStroke is running silently in the background. Start typing in any app to see live autocorrect and grammar fixes recorded here."
-            actionLabel="Try Live Sandbox below"
-            onAction={() => {
-              const sandboxInput = document.querySelector<HTMLInputElement>("input[placeholder*='Try it:']");
-              sandboxInput?.focus();
-            }}
+            title="No recent corrections"
+            description="As you type in any application, KeyStroke will auto-correct typos and log them here."
           />
         )}
-      </div>
-
-      {/* Interactive Engine Sandbox */}
-      <div className="pt-2">
-        <div className="text-[12px] font-sans font-semibold tracking-wider text-[#AAAAAA] uppercase mb-2">
-          LIVE ENGINE SANDBOX
-        </div>
-
-        <input
-          type="text"
-          value={sandboxText}
-          onChange={(e) => setSandboxText(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Try it: type something here (e.g. 'recieve', 'there books', 'thank you')..."
-          className="w-full h-[44px] px-4 bg-[#F5F5F5] text-[#111111] placeholder-[#AAAAAA] text-[14px] rounded-[12px] focus:outline-none focus:ring-1 focus:ring-[#111111] transition"
-        />
-
-        {getRenderedSandboxContent()}
       </div>
     </div>
   );

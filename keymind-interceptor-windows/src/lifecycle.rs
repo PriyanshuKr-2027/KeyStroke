@@ -75,7 +75,23 @@ unsafe extern "system" fn low_level_keyboard_proc(
             let is_control = (GetAsyncKeyState(VK_CONTROL as i32) as u16 & 0x8000) != 0;
             let is_alt = (GetAsyncKeyState(VK_MENU as i32) as u16 & 0x8000) != 0;
 
-            if !is_control && !is_alt {
+            if is_control && is_alt {
+                if let Some(ref sender) = *SENDER.lock() {
+                    if vk == 0x20 {
+                        let _ = sender.try_send(Event::PaletteRequested);
+                    } else if vk == 0x47 {
+                        let _ = sender.try_send(Event::HotKeyTriggered(2));
+                    } else if vk == 0x50 {
+                        let _ = sender.try_send(Event::HotKeyTriggered(3));
+                    } else if vk == 0x53 {
+                        let _ = sender.try_send(Event::HotKeyTriggered(4));
+                    } else if vk == 0x58 {
+                        let _ = sender.try_send(Event::HotKeyTriggered(5));
+                    } else if vk == 0x4B {
+                        let _ = sender.try_send(Event::HotKeyTriggered(6));
+                    }
+                }
+            } else if !is_control && !is_alt {
                 // CRITICAL: Use try_lock to avoid blocking — hook must return fast
                 if let Some(mut buf) = WORD_BUFFER.try_lock() {
                     if ch.is_alphanumeric() || ch == '/' || ch == '_' || ch == '-' {

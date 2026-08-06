@@ -92,8 +92,28 @@ pub struct UserProfile {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeatureToggles {
+    pub autocorrect_enabled: bool,
+    pub prediction_enabled: bool,
+    pub grammar_enabled: bool,
+    pub homophone_enabled: bool,
+}
+
+impl Default for FeatureToggles {
+    fn default() -> Self {
+        Self {
+            autocorrect_enabled: true,
+            prediction_enabled: true,
+            grammar_enabled: true,
+            homophone_enabled: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoreData {
     pub profile: UserProfile,
+    pub toggles: FeatureToggles,
     pub variables: Vec<Variable>,
     pub personal_words: Vec<PersonalWordItem>,
     pub learned_phrases: Vec<LearnedPhraseItem>,
@@ -107,6 +127,7 @@ impl Default for StoreData {
     fn default() -> Self {
         Self {
             profile: UserProfile::default(),
+            toggles: FeatureToggles::default(),
             variables: vec![],
             personal_words: vec![],
             learned_phrases: vec![],
@@ -731,10 +752,20 @@ fn set_grammar_sensitivity(_level: u32, state: tauri::State<AppState>) -> Result
 }
 
 #[tauri::command]
-fn update_system_setting(_key: String, _value: bool, state: tauri::State<AppState>) -> Result<(), String> {
+fn get_feature_toggles(state: tauri::State<AppState>) -> FeatureToggles {
+    let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
+    store.toggles.clone()
+}
+
+#[tauri::command]
+fn update_feature_toggle(feature: String, enabled: bool, state: tauri::State<AppState>) -> Result<(), String> {
     let mut store = state.store.lock().unwrap_or_else(|e| e.into_inner());
-    if _key == "grammar_enabled" {
-        store.grammar_status.enabled = _value;
+    match feature.as_str() {
+        "autocorrect" => store.toggles.autocorrect_enabled = enabled,
+        "prediction" => store.toggles.prediction_enabled = enabled,
+        "grammar" => store.toggles.grammar_enabled = enabled,
+        "homophone" => store.toggles.homophone_enabled = enabled,
+        _ => {}
     }
     save_store(&store);
     Ok(())
@@ -818,15 +849,26 @@ fn main() {
                             }
                             keymind_interceptor_windows::Event::WordCompleted { word, context } => {
                                 let state = app_handle.state::<AppState>();
-                                let mut store = state.store.lock().unwrap_or_else(|e| e.into_inner());
 
                                 // 1. Check personal dictionary whitelist
-                                if store.personal_words.iter().any(|w| w.word.eq_ignore_ascii_case(&word)) {
+                                let is_whitelisted = {
+                                    let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
+                                    store.personal_words.iter().any(|w| w.word.eq_ignore_ascii_case(&word))
+                                };
+                                if is_whitelisted {
                                     return;
                                 }
 
-                                // 2. Check custom variables (e.g. /email -> user@example.com)
-                                let replacement = store.variables.iter().find(|v| v.key.eq_ignore_ascii_case(&word)).and_then(|v| v.value.clone());
+                                // 2. Check custom variables and feature toggles
+                                let (replacement, autocorrect_enabled, prediction_enabled, grammar_enabled) = {
+                                    let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
+                                    (
+                                        store.variables.iter().find(|v| v.key.eq_ignore_ascii_case(&word)).and_then(|v| v.value.clone()),
+                                        store.toggles.autocorrect_enabled,
+                                        store.toggles.prediction_enabled,
+                                        store.toggles.grammar_enabled,
+                                    )
+                                };
 
                                 if let Some(rep) = replacement {
                                     let injector = keymind_interceptor_windows::TextInjector::new();
@@ -839,34 +881,76 @@ fn main() {
                                         rep
                                     };
                                     injector.inject_text(&expanded);
+                                    let mut store = state.store.lock().unwrap_or_else(|e| e.into_inner());
                                     store.daily_stats.variables_used += 1;
                                     save_store_async(store.clone());
                                 } else {
-                                    // 3. Multi-layered SymSpell + Bigram Context Re-ranking
-                                    let sym = get_symspell();
-                                    let bigram = get_bigram_model();
-                                    if let Some((suggested, base_conf)) = sym.check(&word) {
-                                        let prev_word = context.split_whitespace().last().unwrap_or("");
-                                        let mut final_conf = base_conf;
+                                    let mut corrected_typo = false;
 
-                                        if !prev_word.is_empty() {
-                                            if let Some(bg_score) = bigram.score(prev_word, &suggested) {
-                                                final_conf = (base_conf * 0.6 + bg_score * 0.4).min(0.99);
+                                    // 3. Multi-layered SymSpell + Bigram Context Re-ranking
+                                    if autocorrect_enabled {
+                                        let sym = get_symspell();
+                                        let bigram = get_bigram_model();
+                                        if let Some((suggested, base_conf)) = sym.check(&word) {
+                                            let prev_word = context.split_whitespace().last().unwrap_or("");
+                                            let mut final_conf = base_conf;
+
+                                            if !prev_word.is_empty() {
+                                                if let Some(bg_score) = bigram.score(prev_word, &suggested) {
+                                                    final_conf = (base_conf * 0.6 + bg_score * 0.4).min(0.99);
+                                                }
+                                            }
+
+                                            if final_conf >= 0.70 {
+                                                let injector = keymind_interceptor_windows::TextInjector::new();
+                                                injector.send_backspaces(word.len());
+                                                injector.inject_text(&suggested);
+
+                                                let mut store = state.store.lock().unwrap_or_else(|e| e.into_inner());
+                                                store.daily_stats.corrections_made += 1;
+                                                store.grammar_fixes.push(GrammarFix {
+                                                    id: format!("gf_{}", chrono::Utc::now().timestamp_millis()),
+                                                    original: word.clone(),
+                                                    fixed: suggested.clone(),
+                                                    rule_id: "symspell_bigram".to_string(),
+                                                    category: "TYPOS".to_string(),
+                                                    timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                                                });
+                                                save_store_async(store.clone());
+                                                corrected_typo = true;
                                             }
                                         }
+                                    }
 
-                                        if final_conf >= 0.70 {
+                                    // 4. Live Next-Word Prediction Trigger
+                                    if !corrected_typo && prediction_enabled {
+                                        let predictor = get_predictor();
+                                        let predictions = predictor.predict(&context);
+                                        if !predictions.is_empty() {
+                                            let _ = app_handle.emit_all("prediction-update", serde_json::json!({
+                                                "candidate": predictions[0],
+                                                "suggestions": predictions,
+                                            }));
+                                        }
+                                    }
+
+                                    // 5. Live Sentence Grammar Assistant (nlprule)
+                                    if !corrected_typo && grammar_enabled && (context.contains('.') || context.contains('!') || context.contains('?')) {
+                                        let engine = get_grammar_engine();
+                                        let fixed_sentence = engine.fix_text(&context).await;
+                                        if !fixed_sentence.is_empty() && fixed_sentence != context {
                                             let injector = keymind_interceptor_windows::TextInjector::new();
-                                            injector.send_backspaces(word.len());
-                                            injector.inject_text(&suggested);
+                                            injector.send_backspaces(context.len());
+                                            injector.inject_text(&fixed_sentence);
 
+                                            let mut store = state.store.lock().unwrap_or_else(|e| e.into_inner());
                                             store.daily_stats.corrections_made += 1;
                                             store.grammar_fixes.push(GrammarFix {
                                                 id: format!("gf_{}", chrono::Utc::now().timestamp_millis()),
-                                                original: word.clone(),
-                                                fixed: suggested.clone(),
-                                                rule_id: "symspell_bigram".to_string(),
-                                                category: "TYPOS".to_string(),
+                                                original: context.clone(),
+                                                fixed: fixed_sentence.clone(),
+                                                rule_id: "nlprule_grammar".to_string(),
+                                                category: "GRAMMAR".to_string(),
                                                 timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
                                             });
                                             save_store_async(store.clone());
@@ -932,8 +1016,9 @@ fn main() {
             set_grammar_language,
             toggle_engine_component,
             set_grammar_sensitivity,
-            update_system_setting,
             save_profile,
+            get_feature_toggles,
+            update_feature_toggle,
             set_typing_preset,
             export_local_data,
             clear_activity_history,

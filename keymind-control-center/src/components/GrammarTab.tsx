@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
 import { GrammarStatus, GrammarFix, GrammarMode } from "../types";
-import { TableRowSkeleton } from "./Skeleton";
-import { EmptyState } from "./EmptyState";
 import { ErrorState } from "./ErrorState";
-import { CheckCircle2, Sparkles } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 
 interface GrammarTabProps {
   status: GrammarStatus;
@@ -20,21 +18,42 @@ interface GrammarTabProps {
 
 export const GrammarTab: React.FC<GrammarTabProps> = ({
   status,
-  fixes,
   onModeChange,
-  isLoading = false,
   isError = false,
   errorMessage = "",
   onRetry,
   onShowToast,
 }) => {
-  const [symSpell, setSymSpell] = useState(status.enabled);
+  const [symSpell, setSymSpell] = useState(true);
   const [homophone, setHomophone] = useState(true);
   const [nlprule, setNlprule] = useState(true);
   const [nextWord, setNextWord] = useState(true);
 
   const [sandboxText, setSandboxText] = useState("");
   const [sandboxResult, setSandboxResult] = useState<{ fixed: string; issuesCount: number } | null>(null);
+
+  useEffect(() => {
+    invoke<{ autocorrect_enabled: boolean; prediction_enabled: boolean; grammar_enabled: boolean; homophone_enabled: boolean }>("get_feature_toggles")
+      .then((t) => {
+        if (t) {
+          setSymSpell(t.autocorrect_enabled);
+          setNextWord(t.prediction_enabled);
+          setNlprule(t.grammar_enabled);
+          setHomophone(t.homophone_enabled);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleToggleFeature = (feature: string, current: boolean, setter: (val: boolean) => void, label: string) => {
+    const next = !current;
+    setter(next);
+    invoke("update_feature_toggle", { feature, enabled: next })
+      .then(() => {
+        if (onShowToast) onShowToast(label, next ? "Feature Enabled" : "Feature Disabled", next ? "success" : "info");
+      })
+      .catch(() => {});
+  };
 
   useEffect(() => {
     if (!sandboxText.trim()) {
@@ -116,18 +135,18 @@ export const GrammarTab: React.FC<GrammarTabProps> = ({
         </div>
         <div className="bg-[#161618] border border-[rgba(255,255,255,0.08)] rounded-[10px] divide-y divide-[rgba(255,255,255,0.08)]">
           {[
-            { label: "Grammar & Punctuation Assistant", desc: "Catches sentence errors and missing punctuation", state: nlprule, set: setNlprule },
-            { label: "Smart Autocorrect", desc: "Fixes typos automatically as you type", state: symSpell, set: setSymSpell },
-            { label: "Homophone Fixer", desc: "Corrects words like 'their', 'there', and 'they're'", state: homophone, set: setHomophone },
-            { label: "Predictive Typing Suggestions", desc: "Shows next-word suggestions right next to your cursor", state: nextWord, set: setNextWord },
-          ].map((row, idx) => (
-            <div key={idx} className="px-4 py-3 flex items-center justify-between">
+            { key: "grammar", label: "Grammar & Punctuation Assistant", desc: "Catches sentence errors and missing punctuation", state: nlprule, set: setNlprule },
+            { key: "autocorrect", label: "Smart Autocorrect", desc: "Fixes typos automatically as you type", state: symSpell, set: setSymSpell },
+            { key: "homophone", label: "Homophone Fixer", desc: "Corrects words like 'their', 'there', and 'they're'", state: homophone, set: setHomophone },
+            { key: "prediction", label: "Predictive Typing Suggestions", desc: "Shows next-word suggestions right next to your cursor", state: nextWord, set: setNextWord },
+          ].map((row) => (
+            <div key={row.key} className="px-4 py-3 flex items-center justify-between">
               <div>
                 <p className="text-[13px] font-medium text-[#EDEDED]">{row.label}</p>
                 <p className="text-[11px] text-[#8F8F96]">{row.desc}</p>
               </div>
               <button
-                onClick={() => row.set(!row.state)}
+                onClick={() => handleToggleFeature(row.key, row.state, row.set, row.label)}
                 className={`w-10 h-5 rounded-full transition relative cursor-pointer ${
                   row.state ? "bg-[#6366F1]" : "bg-[#28282D]"
                 }`}

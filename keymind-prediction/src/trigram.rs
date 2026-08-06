@@ -65,7 +65,8 @@ pub async fn query_trigrams(
     let w1_clean = w1.trim().to_lowercase();
     let w2_clean = w2.trim().to_lowercase();
 
-    let rows = sqlx::query_as::<_, (String, i64)>(
+    // 1. Try exact Trigram match (w1, w2) -> w3
+    let mut rows = sqlx::query_as::<_, (String, i64)>(
         r#"
         SELECT w3, count FROM trigrams
         WHERE w1 = ?1 AND w2 = ?2
@@ -78,6 +79,36 @@ pub async fn query_trigrams(
     .fetch_all(db)
     .await?;
 
+    // 2. Fallback: Try Bigram match (w2) -> w3
+    if rows.is_empty() && !w2_clean.is_empty() {
+        rows = sqlx::query_as::<_, (String, i64)>(
+            r#"
+            SELECT w3, count FROM trigrams
+            WHERE w2 = ?1
+            ORDER BY count DESC
+            LIMIT 3;
+            "#,
+        )
+        .bind(&w2_clean)
+        .fetch_all(db)
+        .await?;
+    }
+
+    // 3. Fallback: Try w1 -> w3 if w2 was empty
+    if rows.is_empty() && !w1_clean.is_empty() {
+        rows = sqlx::query_as::<_, (String, i64)>(
+            r#"
+            SELECT w3, count FROM trigrams
+            WHERE w2 = ?1
+            ORDER BY count DESC
+            LIMIT 3;
+            "#,
+        )
+        .bind(&w1_clean)
+        .fetch_all(db)
+        .await?;
+    }
+
     if rows.is_empty() {
         return Ok((Vec::new(), 0.0));
     }
@@ -85,7 +116,7 @@ pub async fn query_trigrams(
     let total: i64 = rows.iter().map(|(_, c)| c).sum();
     let top_count = rows[0].1;
     let confidence = if total > 0 {
-        (top_count as f32) / (total as f32)
+        ((top_count as f32) / (total as f32)).min(0.99)
     } else {
         0.0
     };

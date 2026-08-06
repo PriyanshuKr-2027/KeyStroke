@@ -24,6 +24,7 @@ import {
   ActivePrediction,
 } from "./types";
 import { invoke } from "@tauri-apps/api/tauri";
+import { listen } from "@tauri-apps/api/event";
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>("dashboard");
@@ -118,6 +119,21 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     loadAllData();
+
+    const unlisten = listen<{ candidate: string; suggestions: string[] }>("prediction-update", (event) => {
+      if (event.payload && event.payload.candidate) {
+        setActivePrediction({
+          candidate_word: event.payload.candidate,
+          full_suggestions: event.payload.suggestions || [event.payload.candidate],
+          confidence: 0.88,
+          context: "",
+        });
+      }
+    });
+
+    return () => {
+      unlisten.then((f) => f());
+    };
   }, []);
 
   const handleToggleEngine = () => {

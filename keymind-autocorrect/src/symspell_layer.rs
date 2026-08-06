@@ -32,44 +32,46 @@ impl SymSpellEngine {
         Self { symspell }
     }
 
-    /// Check word against SymSpell dictionary with max edit distance 2.
+    /// Check word against SymSpell dictionary with strict edit distance rules.
     pub fn check(&self, word: &str) -> Option<(String, f32)> {
-        if word.chars().count() <= 1 {
+        // Skip single and double letter words (e.g. "a", "i", "in", "it", "to", "is", "of", "on", "at")
+        if word.chars().count() <= 2 {
             return None;
         }
 
         let word_lower = word.to_lowercase();
-        let suggestions = self.symspell.lookup(&word_lower, Verbosity::Closest, 2);
-        
+        let char_len = word_lower.chars().count();
+
+        // 1. CRITICAL: If the typed word is ALREADY a valid English word in the dictionary,
+        // NEVER auto-correct it to another word!
+        let exact_matches = self.symspell.lookup(&word_lower, Verbosity::Top, 0);
+        if !exact_matches.is_empty() {
+            return None;
+        }
+
+        // 2. Strict Edit Distance: Short words (3-4 chars) allow max edit distance 1 only.
+        let max_distance = if char_len <= 4 { 1 } else { 2 };
+
+        let suggestions = self.symspell.lookup(&word_lower, Verbosity::Closest, max_distance);
         if suggestions.is_empty() {
             return None;
         }
 
         let best = &suggestions[0];
 
-        // If the best suggestion matches the typed word exactly, no correction needed
+        // Skip if suggestion matches typed word
         if best.term.eq_ignore_ascii_case(&word_lower) {
             return None;
         }
 
-        // Frequency threshold check: skip if suggestion frequency < typed_word_frequency * 0.1
-        let typed_freq = self.symspell.lookup(&word_lower, Verbosity::Top, 0)
-            .first()
-            .map(|s| s.count)
-            .unwrap_or(1);
-
-        if (best.count as f64) < (typed_freq as f64 * 0.1) {
-            return None;
-        }
-
-        // Calculate confidence score normalized to [0.5, 0.99] based on distance and frequency
+        // Calculate confidence score normalized to [0.70, 0.99]
         let base_confidence = match best.distance {
-            1 => 0.85f32,
-            2 => 0.70f32,
+            1 => 0.88f32,
+            2 => 0.75f32,
             _ => 0.50f32,
         };
 
-        let freq_boost = ((best.count as f32).ln().max(0.0) / 20.0).min(0.14);
+        let freq_boost = ((best.count as f32).ln().max(0.0) / 25.0).min(0.10);
         let confidence = (base_confidence + freq_boost).min(0.99);
 
         Some((best.term.clone(), confidence))

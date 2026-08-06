@@ -34,8 +34,9 @@ keymind-interceptor     keymind-autocorrect     keymind-prediction    keymind-gr
 
 ### 2.1 `keymind-interceptor-windows`
 * **Technology**: Win32 API (`windows-sys`, `user32.dll`).
-* **Hook Mechanism**: `SetWindowsHookExW` registering a `WH_KEYBOARD_LL` (low-level keyboard) callback procedure.
+* **Hook Mechanism**: `SetWindowsHookExW` registering a `WH_KEYBOARD_LL` (low-level keyboard) callback procedure with direct event-handler channel loop integration (`lifecycle.rs`).
 * **Threading**: Dedicated thread running a standard Win32 message loop (`GetMessageW` / `DispatchMessageW`) to prevent OS input freezes.
+* **Global Hotkeys**: Maps all 6 system-wide hotkeys (`Ctrl+Alt+Space` for Autocorrect, `Ctrl+Alt+G` for Grammar, `Ctrl+Alt+P` for Prediction, `Ctrl+Alt+M` for Menu, `Ctrl+Alt+S` for Snippet, `Ctrl+Alt+W` for Window focus).
 * **Latency SLA**: < 1ms per keypress event.
 
 ### 2.2 `keymind-autocorrect`
@@ -75,6 +76,11 @@ keymind-interceptor     keymind-autocorrect     keymind-prediction    keymind-gr
 ### 2.6 `keymind-sync-server` (Dual AI Copilot Client)
 * **Primary Provider**: **Groq API** (`llama-3.3-70b-versatile`) for ultra-fast response (< 150ms).
 * **Failover Provider**: **Cerebras API** (`llama3.1-8b`) automatically triggered if Groq returns HTTP 429 (Rate Limit) or HTTP 5xx errors.
+
+### 2.7 `keymind-control-center` (Tauri Desktop App & IPC Bridge)
+* **Technology**: Tauri 1.x / 2.x, React 18, TypeScript, Tailwind CSS.
+* **IPC Command Bridge**: Exposes system commands including `open_accessibility_settings`, live shortcut recording, per-app whitelist/blacklist toggles, and dictionary state manipulation.
+* **Thread Safety**: Mutex lock stabilization across all backend state handlers prevents deadlocks and panics under rapid IPC calls.
 
 ---
 
@@ -132,4 +138,5 @@ CREATE TABLE IF NOT EXISTS app_preferences (
 
 * **Compiler Toolchain**: Rust `1.85+` target `x86_64-pc-windows-msvc` or `x86_64-pc-windows-gnu`.
 * **Linker Resolution**: Modern 64-bit MinGW-w64 (`winlibs-x86_64-posix-seh-gcc-16.1.0`) placed at the top of System `PATH` to resolve GNU `dlltool.exe` conflicts during `windows-sys` and `libsqlite3-sys` compilation.
+* **Bundling & Installer**: Windows `downloadBootstrapper` configured for WebView2 runtime installer bundling in NSIS / MSI installers.
 * **Frontend Build**: Vite 5 + React 18 + Tailwind CSS 3.4 (`postcss.config.js` and `tailwind.config.js` configured for PostCSS pipeline).

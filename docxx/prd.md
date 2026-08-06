@@ -55,6 +55,7 @@
 
 ### Module 1: System-Wide Key Interceptor
 * Must capture low-level keyboard events across Windows (`WH_KEYBOARD_LL`) and macOS (`CGEventTap`).
+* Must route events through an unbuffered lifecycle channel connected directly to the core event handler loop.
 * Must support instant passthrough with sub-1ms overhead.
 
 ### Module 2: SymSpell Autocorrect & Homophone Resolution
@@ -78,8 +79,12 @@
 * Must allow users to toggle Autocorrect, Grammar, or AI Copilot on a per-app basis.
 
 ### Module 7: Global Hotkeys & Shortcuts
-* Must register system-wide hotkeys (`Ctrl+Alt+Space`, `Ctrl+Alt+G`, `Ctrl+Alt+P`).
-* Must feature interactive keypress recording in the Control Center UI.
+* Must register and map 6 system-wide global hotkeys (`Ctrl+Alt+Space` for Autocorrect toggle, `Ctrl+Alt+G` for Grammar, `Ctrl+Alt+P` for Prediction, `Ctrl+Alt+M` for Menu, `Ctrl+Alt+S` for Snippet, `Ctrl+Alt+W` for Window focus).
+* Must feature interactive keypress recording in the Control Center UI with instant shortcut updates.
+
+### Module 8: First-Run Onboarding & System Accessibility Setup
+* Must guide new users through permission setup, AI key configuration, and typing presets.
+* Must include direct OS accessibility launcher trigger (`open_accessibility_settings`) and auto-advance/continue state handling.
 
 ---
 
@@ -87,4 +92,6 @@
 
 * **Privacy & Security**: All autocorrect, prediction, and dictionary operations must process 100% locally on the device. API keys must be encrypted in OS keychain storage.
 * **Cross-Platform Compatibility**: Rust engine core must compile cleanly for Windows (`x86_64-pc-windows-msvc` / `gnu`) and macOS (`x86_64` / `aarch64`).
-* **Reliability**: Foreground application must remain responsive even if background LanguageTool server or AI API calls time out.
+* **Installer & Deployment**: Windows installer pipeline must bundle WebView2 bootstrapper (`downloadBootstrapper`) for seamless single-click setup across client systems.
+* **Reliability & Thread Safety**: Foreground application and IPC handlers must remain fully responsive and panic-free, protecting backend state locks under heavy concurrent events.
+

@@ -532,7 +532,7 @@ Shown full-screen on first launch, replacing the normal shell. Three steps with 
    low-level keyboard access. This runs entirely on your device —
    nothing leaves your machine.
 
-        [ Open Accessibility Settings ]
+        [ Open Accessibility Settings ]  [ Continue → ]
 
         Status: ● Waiting for permission
                 ● Granted  ← turns green when detected
@@ -540,7 +540,9 @@ Shown full-screen on first launch, replacing the normal shell. Three steps with 
 - Large centered layout, max-width 480px
 - Headline: Inter 22px semibold
 - Body: Inter 15px `#6B6B6B`
-- Status indicator auto-polls every 500ms and advances to Step 2 automatically on grant
+- **Interactive Triggers**: Clicking `[ Open Accessibility Settings ]` dispatches the native `open_accessibility_settings` Tauri IPC command to open OS system preferences directly.
+- **Auto-Advance & Continue**: Status indicator polls permission state every 500ms and automatically advances to Step 2 upon detection, with an explicit `Continue →` button provided for manual progression.
+
 
 ### Step 2 — AI Setup
 ```

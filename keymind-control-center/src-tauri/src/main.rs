@@ -13,6 +13,7 @@ use shortcuts::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
+use tauri::Manager;
 use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -826,6 +827,38 @@ fn main() {
                                     let _ = open_palette_window(app_handle.clone());
                                 } else if !shortcut_name.is_empty() {
                                     let _ = handle_shortcut_trigger(shortcut_name.to_string()).await;
+                                }
+                            }
+                            keymind_interceptor_windows::Event::WordCompleted { word, context: _ } => {
+                                let state = app_handle.state::<AppState>();
+                                let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
+
+                                // 1. Check custom variables (e.g. /email -> user@example.com)
+                                let replacement = store.variables.iter().find(|v| v.key.eq_ignore_ascii_case(&word)).and_then(|v| v.value.as_deref());
+
+                                if let Some(rep) = replacement {
+                                    let injector = keymind_interceptor_windows::TextInjector::new();
+                                    injector.send_backspaces(word.len());
+                                    injector.inject_text(rep);
+                                } else {
+                                    // 2. Check static autocorrect dictionary
+                                    let static_autocorrect: std::collections::HashMap<&str, &str> = [
+                                        ("teh", "the"),
+                                        ("recieve", "receive"),
+                                        ("seperate", "separate"),
+                                        ("occured", "occurred"),
+                                        ("untill", "until"),
+                                        ("waht", "what"),
+                                        ("htat", "that"),
+                                        ("thier", "their"),
+                                        ("definately", "definitely"),
+                                    ].into_iter().collect();
+
+                                    if let Some(&corrected) = static_autocorrect.get(word.to_lowercase().as_str()) {
+                                        let injector = keymind_interceptor_windows::TextInjector::new();
+                                        injector.send_backspaces(word.len());
+                                        injector.inject_text(corrected);
+                                    }
                                 }
                             }
                             _ => {}

@@ -4,7 +4,7 @@
 
 | Feature ID | Feature Name | Core Functionality | Status | Subsystem |
 | :--- | :--- | :--- | :--- | :--- |
-| **FEAT-01** | Low-Level Key Interception | System-wide unbuffered keyboard hook across Windows & macOS | ✅ Verified | `keymind-interceptor-windows` |
+| **FEAT-01** | Low-Level Key Interception | System-wide unbuffered keyboard hook across Windows & macOS with event-handler lifecycle channel connection | ✅ Verified | `keymind-interceptor-windows` |
 | **FEAT-02** | SymSpell Autocorrect | Fast edit distance typo correction against 82k English words | ✅ Verified | `keymind-autocorrect` |
 | **FEAT-03** | Homophone Context Swaps | Automatic resolution of `their`/`there`/`they're`, `then`/`than` | ✅ Verified | `keymind-autocorrect` |
 | **FEAT-04** | Trigram Next-Word Prediction | Predicts next word based on 2-word typing context | ✅ Verified | `keymind-prediction` |
@@ -14,9 +14,9 @@
 | **FEAT-08** | Custom Whitelist Dictionary | Personal dictionary ignoring technical jargon & acronyms | ✅ Verified | `keymind-learning` |
 | **FEAT-09** | Learned Frequent Phrases | Auto-learns multi-word phrases ranked by frequency | ✅ Verified | `keymind-learning` |
 | **FEAT-10** | Per-App Exclusion Rules | Enable/disable features per application bundle ID | ✅ Verified | `keymind-control-center` |
-| **FEAT-11** | Global Keybinding Capture | Custom shortcuts (`Ctrl+Alt+Space`, `Ctrl+Alt+G`) with live recorder | ✅ Verified | `keymind-control-center` |
+| **FEAT-11** | Global Keybinding Capture | Custom shortcuts mapping all 6 global hotkeys (`Ctrl+Alt+Space`, `Ctrl+Alt+G`, `Ctrl+Alt+P`, etc.) with live recorder | ✅ Verified | `keymind-control-center` |
 | **FEAT-12** | Dual AI Copilot Failover | Groq Llama 3.3 70B with automatic Cerebras Llama 3.1 8B failover | ✅ Verified | `keymind-sync-server` |
-| **FEAT-13** | First-Run Onboarding Wizard | 3-step setup wizard for permissions, AI keys, & presets | ✅ Verified | `keymind-control-center` |
+| **FEAT-13** | First-Run Onboarding Wizard | 3-step setup wizard with permission detection, `open_accessibility_settings` integration, auto-advance, AI keys, & presets | ✅ Verified | `keymind-control-center` |
 | **FEAT-14** | Interactive Engine Sandbox | Home & Grammar tab live input bar for instant testing | ✅ Verified | `keymind-control-center` |
 | **FEAT-15** | Glassmorphic Desktop Dashboard | Claude Terracotta obsidian UI built with Tauri + React | ✅ Verified | `keymind-control-center` |
 
@@ -26,9 +26,9 @@
 
 ### FEAT-01: System-Wide Low-Level Key Interception
 * **Description**: Captures keypress events across native OS windows before they reach target text fields, enabling instant replacement without input flicker.
-* **Input**: Native OS keypress hardware interrupt.
-* **Output**: Modified keypress stream or expanded buffer injection.
-* **Verification**: `cargo run --example interactive_test` execution.
+* **Input**: Native OS keypress hardware interrupt (`WH_KEYBOARD_LL` on Windows, `CGEventTap` on macOS).
+* **Output**: Modified keypress stream or expanded buffer injection via connected event handler channel loop.
+* **Verification**: `cargo run --example interactive_test` execution and thread-safe lifecycle channel validation.
 
 ### FEAT-02 & FEAT-03: SymSpell Autocorrect & Homophones
 * **Description**: Corrects transposed characters (e.g. `teh` $\rightarrow$ `the`, `recieve` $\rightarrow$ `receive`) and contextual homophones (e.g. `going over their` $\rightarrow$ `there`).
@@ -57,10 +57,15 @@
   * `/leave` $\rightarrow$ `Dear Manager, Please accept my formal leave application...`
 
 ### FEAT-11: Global Keybinding Capture & Live Recorder
-* **Description**: System-wide global hotkeys for instant actions.
+* **Description**: System-wide global hotkeys for instant actions. Maps 6 global hotkeys (`Ctrl+Alt+Space` for Autocorrect, `Ctrl+Alt+G` for Grammar, `Ctrl+Alt+P` for Prediction, `Ctrl+Alt+M` for Menu, `Ctrl+Alt+S` for Snippet, `Ctrl+Alt+W` for Window focus).
 * **Live Recorder**: Clicking a shortcut row in the Shortcuts tab activates a live `keydown` event listener. Pressing any combination (e.g. `Ctrl+Alt+M`) updates the binding immediately with <kbd>Esc</kbd> cancellation.
 
 ### FEAT-12: Dual AI Copilot Failover Architecture
 * **Primary**: Groq API (`llama-3.3-70b-versatile`).
 * **Failover**: Cerebras API (`llama3.1-8b`).
 * **Behavior**: If Groq returns rate limit error HTTP 429 or connection timeout, KeyMind automatically routes the prompt to Cerebras in < 50ms without user interruption.
+
+### FEAT-13: First-Run Onboarding Wizard & Permission Detection
+* **Description**: 3-step onboarding flow guiding users through system setup.
+* **Permission Detection**: Integrates `open_accessibility_settings` command allowing users to open OS accessibility preferences directly from the wizard, paired with an auto-advance / continue mechanism to proceed seamlessly.
+

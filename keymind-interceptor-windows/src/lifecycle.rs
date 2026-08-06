@@ -31,13 +31,79 @@ impl HookHandle {
 
 pub const HOTKEY_ID_PALETTE: i32 = 0x0001;
 
+#[cfg(target_os = "windows")]
+static mut INTERCEPTOR_HWND: windows_sys::Win32::Foundation::HWND = 0;
+#[cfg(target_os = "windows")]
+static mut HOOK_HANDLE: windows_sys::Win32::UI::WindowsAndMessaging::HHOOK = 0;
+#[cfg(target_os = "windows")]
+static SENDER: std::sync::Mutex<Option<mpsc::Sender<Event>>> = std::sync::Mutex::new(None);
+#[cfg(target_os = "windows")]
+static WORD_BUFFER: std::sync::Mutex<Vec<char>> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn low_level_keyboard_proc(
+    n_code: i32,
+    w_param: usize,
+    l_param: isize,
+) -> isize {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CallNextHookEx, KBDLLHOOKSTRUCT, WM_KEYDOWN, WM_SYSKEYDOWN,
+    };
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        GetAsyncKeyState, VK_BACK, VK_MENU, VK_CONTROL,
+    };
+
+    if n_code >= 0 && (w_param == WM_KEYDOWN as usize || w_param == WM_SYSKEYDOWN as usize) {
+        let kbd = *(l_param as *const KBDLLHOOKSTRUCT);
+        let vk = kbd.vkCode;
+
+        if let Some(ch) = crate::hook::translate_vk_code(vk, kbd.scanCode) {
+            let is_control = (GetAsyncKeyState(VK_CONTROL as i32) as u16 & 0x8000) != 0;
+            let is_alt = (GetAsyncKeyState(VK_MENU as i32) as u16 & 0x8000) != 0;
+
+            if !is_control && !is_alt {
+                if let Ok(mut buf) = WORD_BUFFER.lock() {
+                    if ch.is_alphanumeric() || ch == '/' || ch == '_' || ch == '-' {
+                        buf.push(ch);
+                    } else if ch == ' ' || ch == '\r' || ch == '\n' || ch == '\t' || ch == '.' || ch == ',' || ch == '!' || ch == '?' {
+                        if !buf.is_empty() {
+                            let word: String = buf.iter().collect();
+                            buf.clear();
+
+                            if let Ok(sender_guard) = SENDER.lock() {
+                                if let Some(ref sender) = *sender_guard {
+                                    let _ = sender.try_send(Event::WordCompleted {
+                                        word: word.clone(),
+                                        context: word,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else if vk == VK_BACK as u32 {
+            if let Ok(mut buf) = WORD_BUFFER.lock() {
+                if !buf.is_empty() {
+                    buf.pop();
+                }
+            }
+        }
+    }
+
+    CallNextHookEx(HOOK_HANDLE, n_code, w_param, l_param)
+}
+
 pub fn update_registered_hotkey(id: i32, modifiers: u32, vk_code: u32) {
     #[cfg(target_os = "windows")]
     {
         use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey};
         unsafe {
-            UnregisterHotKey(0, id);
-            RegisterHotKey(0, id, modifiers, vk_code);
+            let hwnd = INTERCEPTOR_HWND;
+            UnregisterHotKey(hwnd, id);
+            if modifiers != 0 || vk_code != 0 {
+                RegisterHotKey(hwnd, id, modifiers, vk_code);
+            }
         }
     }
     #[cfg(not(target_os = "windows"))]
@@ -54,20 +120,35 @@ pub fn start_interceptor(sender: mpsc::Sender<Event>) -> HookHandle {
         #[cfg(target_os = "windows")]
         {
             use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-                RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, MOD_SHIFT, VK_SPACE,
+                RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, VK_SPACE,
             };
             use windows_sys::Win32::UI::WindowsAndMessaging::{
-                DispatchMessageW, GetMessageW, TranslateMessage, MSG, WM_HOTKEY,
+                DispatchMessageW, GetMessageW, SetWindowsHookExW, UnhookWindowsHookEx,
+                TranslateMessage, MSG, WM_HOTKEY, WH_KEYBOARD_LL,
             };
+            use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 
             unsafe {
-                // Register default global hotkeys
+                if let Ok(mut guard) = SENDER.lock() {
+                    *guard = Some(sender.clone());
+                }
+
+                // Install WH_KEYBOARD_LL low-level keyboard hook
+                let h_instance = GetModuleHandleW(std::ptr::null());
+                HOOK_HANDLE = SetWindowsHookExW(
+                    WH_KEYBOARD_LL,
+                    Some(low_level_keyboard_proc),
+                    h_instance,
+                    0,
+                );
+
+                // Register default global hotkeys matching shortcuts.rs
                 RegisterHotKey(0, 1, (MOD_CONTROL | MOD_ALT) as u32, VK_SPACE as u32);
-                RegisterHotKey(0, 2, (MOD_CONTROL | MOD_SHIFT) as u32, 0x47); // Ctrl+Shift+G (grammar)
-                RegisterHotKey(0, 3, (MOD_CONTROL | MOD_SHIFT) as u32, 0x50); // Ctrl+Shift+P (pro)
-                RegisterHotKey(0, 4, (MOD_CONTROL | MOD_SHIFT) as u32, 0x53); // Ctrl+Shift+S (summarize)
-                RegisterHotKey(0, 5, (MOD_CONTROL | MOD_SHIFT) as u32, 0x45); // Ctrl+Shift+E (expand)
-                RegisterHotKey(0, 6, (MOD_CONTROL | MOD_SHIFT) as u32, 0x4B); // Ctrl+Shift+K (toggle)
+                RegisterHotKey(0, 2, (MOD_CONTROL | MOD_ALT) as u32, 0x47); // Ctrl+Alt+G (grammar)
+                RegisterHotKey(0, 3, (MOD_CONTROL | MOD_ALT) as u32, 0x50); // Ctrl+Alt+P (pro)
+                RegisterHotKey(0, 4, (MOD_CONTROL | MOD_ALT) as u32, 0x53); // Ctrl+Alt+S (summarize)
+                RegisterHotKey(0, 5, (MOD_CONTROL | MOD_ALT) as u32, 0x58); // Ctrl+Alt+X (expand)
+                RegisterHotKey(0, 6, (MOD_CONTROL | MOD_ALT) as u32, 0x4B); // Ctrl+Alt+K (toggle)
             }
 
             while is_running_clone.load(Ordering::SeqCst) {
@@ -96,6 +177,9 @@ pub fn start_interceptor(sender: mpsc::Sender<Event>) -> HookHandle {
             unsafe {
                 for id in 1..=6 {
                     UnregisterHotKey(0, id);
+                }
+                if HOOK_HANDLE != 0 {
+                    UnhookWindowsHookEx(HOOK_HANDLE);
                 }
             }
         }

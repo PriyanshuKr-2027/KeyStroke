@@ -30,12 +30,12 @@ static RULES: OnceLock<Rules> = OnceLock::new();
 fn get_nlprule_engine() -> Option<(&'static Tokenizer, &'static Rules)> {
     let tokenizer = TOKENIZER.get_or_init(|| {
         let bytes = include_bytes!(concat!(env!("OUT_DIR"), "/en_tokenizer.bin"));
-        Tokenizer::new(Cursor::new(bytes)).expect("Failed to parse embedded nlprule tokenizer")
+        Tokenizer::from_reader(Cursor::new(bytes)).expect("Failed to parse embedded nlprule tokenizer")
     });
 
     let rules = RULES.get_or_init(|| {
         let bytes = include_bytes!(concat!(env!("OUT_DIR"), "/en_rules.bin"));
-        Rules::new(Cursor::new(bytes)).expect("Failed to parse embedded nlprule rules")
+        Rules::from_reader(Cursor::new(bytes)).expect("Failed to parse embedded nlprule rules")
     });
 
     Some((tokenizer, rules))
@@ -53,7 +53,6 @@ impl Default for GrammarEngine {
 }
 
 impl GrammarEngine {
-    /// Construct GrammarEngine (port parameter preserved for backwards API compatibility).
     pub fn new(_port: u16) -> Self {
         Self {
             cache: GrammarCache::default(),
@@ -61,12 +60,10 @@ impl GrammarEngine {
         }
     }
 
-    /// Legacy constructor preserved for compatibility.
     pub fn with_java_server(_jar_path: PathBuf, _port: u16) -> Self {
         Self::new(_port)
     }
 
-    /// Initialize and warm up the native nlprule engine.
     pub async fn start(&self) {
         let _ = tokio::task::spawn_blocking(|| {
             let _ = get_nlprule_engine();
@@ -80,15 +77,12 @@ impl GrammarEngine {
         self.is_ready.load(Ordering::SeqCst)
     }
 
-    /// Synchronously or asynchronously check text for grammar issues using native Rust nlprule.
-    /// Runs sub-millisecond to ~10ms without any Java process or HTTP overhead.
     pub async fn check_text(&self, text: &str, _language: &str) -> Vec<GrammarIssue> {
         let text_trimmed = text.trim();
         if text_trimmed.is_empty() {
             return Vec::new();
         }
 
-        // 1. Check LRU Cache first
         if let Some(cached) = self.cache.get(text_trimmed) {
             return cached;
         }
@@ -104,9 +98,10 @@ impl GrammarEngine {
             suggestions
                 .into_iter()
                 .map(|s| {
-                    let start_char = text_owned[..s.start()].chars().count();
-                    let len_char = text_owned[s.start()..s.end()].chars().count();
-                    let rule_id = s.rule_id().to_string();
+                    let start_char = s.span().r#char().start;
+                    let end_char = s.span().r#char().end;
+                    let len_char = end_char.saturating_sub(start_char);
+                    let rule_id = s.source().to_string();
 
                     let category = if rule_id.contains("TYPO") || rule_id.contains("SPELL") {
                         "TYPOS".to_string()
@@ -122,11 +117,7 @@ impl GrammarEngine {
                         offset: start_char,
                         length: len_char,
                         message: s.message().to_string(),
-                        replacements: s
-                            .replacements()
-                            .iter()
-                            .map(|r| r.value().to_string())
-                            .collect(),
+                        replacements: s.replacements().iter().cloned().collect(),
                         rule_id,
                         category,
                     }
@@ -136,12 +127,10 @@ impl GrammarEngine {
         .await
         .unwrap_or_default();
 
-        // Save to LRU cache
         self.cache.put(text_trimmed, issues.clone());
         issues
     }
 
-    /// Automatically applies top suggestion for each issue found in text.
     pub async fn fix_text(&self, text: &str) -> String {
         let issues = self.check_text(text, "en-US").await;
         apply_text_fixes(text, &issues)

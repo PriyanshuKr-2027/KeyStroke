@@ -129,7 +129,7 @@ pub fn update_registered_hotkey(id: i32, modifiers: u32, vk_code: u32) {
 
 pub fn start_interceptor(sender: mpsc::Sender<Event>) -> HookHandle {
     let is_running = Arc::new(AtomicBool::new(true));
-    let is_running_clone = is_running.clone();
+    let _is_running_clone = is_running.clone();
     let thread_id_store = Arc::new(AtomicU32::new(0));
     let thread_id_clone = thread_id_store.clone();
 

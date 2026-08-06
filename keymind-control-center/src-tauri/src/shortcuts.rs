@@ -180,6 +180,7 @@ pub fn accept_prediction_word(word: String) -> Result<(), String> {
     }
 }
 
+#[allow(dead_code)]
 fn simulate_paste() {
     #[cfg(target_os = "macos")]
     {

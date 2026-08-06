@@ -4,31 +4,19 @@
 
 @layer base {
   :root {
-    --bg-app: #0D0D0E;
-    --surface: #161618;
-    --surface-hover: #1F1F23;
-    --surface-active: #28282D;
-    --border: rgba(255, 255, 255, 0.08);
-    --border-hover: rgba(255, 255, 255, 0.16);
-    --text-primary: #EDEDED;
-    --text-secondary: #8F8F96;
-    --text-tertiary: #5C5C62;
-    --accent: #22C55E;
-    --accent-indigo: #6366F1;
-  }
-
-  .light-theme {
-    --bg-app: #F6F6F8;
-    --surface: #FFFFFF;
-    --surface-hover: #F0F0F4;
-    --surface-active: #E4E4E9;
-    --border: rgba(0, 0, 0, 0.08);
-    --border-hover: rgba(0, 0, 0, 0.16);
-    --text-primary: #111113;
-    --text-secondary: #6B6B73;
-    --text-tertiary: #A0A0AA;
-    --accent: #16A34A;
-    --accent-indigo: #4F46E5;
+    --bg-app: #FAF8F5; /* Warm Claude Paper Ivory */
+    --surface: #FFFFFF; /* Pure Soft White Cards */
+    --surface-hover: #F3EFEA; /* Delicate Warm Hover */
+    --surface-active: #EBE5DD; /* Active State Surface */
+    --border: #E8E4DC; /* Warm Delicate Border */
+    --border-hover: #D6D0C4;
+    --text-primary: #1E1E1E; /* Crisp Deep Charcoal */
+    --text-secondary: #6B6963; /* Warm Muted Slate */
+    --text-tertiary: #96938A; /* Soft Muted Warm Gray */
+    --accent: #DA7756; /* Signature Claude Terracotta Orange */
+    --accent-hover: #C26243;
+    --accent-light: #F7EEEC; /* Terracotta Tint Highlight */
+    --accent-indigo: #DA7756;
   }
 
   * {
@@ -52,7 +40,7 @@
   }
 }
 
-/* Hidden / Custom Desktop Scrollbars */
+/* Elegant Light Scrollbars */
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -61,14 +49,14 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.12);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.25);
 }
 
-/* Sleek Raycast-style Animations */
+/* Animations */
 @keyframes popIn {
   from {
     opacity: 0;
@@ -106,20 +94,4 @@
 
 .animate-slide-up {
   animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-/* Pulsing Recording State */
-@keyframes recordGlow {
-  0%, 100% {
-    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.4);
-    border-color: #6366F1;
-  }
-  50% {
-    box-shadow: 0 0 0 0px rgba(99, 102, 241, 0);
-    border-color: #4F46E5;
-  }
-}
-
-.animate-record-glow {
-  animation: recordGlow 1.2s infinite ease-in-out;
 }

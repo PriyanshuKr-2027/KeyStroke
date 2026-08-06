@@ -3,11 +3,11 @@
 @tailwind utilities;
 
 .palette-container {
-  background: rgba(18, 18, 24, 0.92);
+  background: rgba(250, 248, 245, 0.96);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  border: 1px solid #E8E4DC;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.04);
   border-radius: 14px;
   overflow: hidden;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
@@ -16,35 +16,35 @@
 .palette-input {
   background: transparent;
   outline: none;
-  color: #F3F4F6;
+  color: #1E1E1E;
   font-family: 'Inter', sans-serif;
   font-size: 14px;
   line-height: 1.5;
 }
 
 .palette-input::placeholder {
-  color: #6B7280;
+  color: #96938A;
 }
 
 .context-pill {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #F3EFEA;
+  border: 1px solid #E8E4DC;
   border-radius: 6px;
   font-size: 11px;
   font-weight: 500;
-  color: #9CA3AF;
+  color: #6B6963;
   padding: 2px 8px;
 }
 
 .badge-key {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: #FFFFFF;
+  border: 1px solid #E8E4DC;
   border-radius: 4px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   font-weight: 600;
   padding: 1px 5px;
-  color: #D1D5DB;
+  color: #6B6963;
 }
 
 .pulsate-loader {

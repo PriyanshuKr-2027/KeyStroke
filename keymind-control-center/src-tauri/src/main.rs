@@ -872,14 +872,20 @@ fn main() {
 
                                 if let Some(rep) = replacement {
                                     let injector = keymind_interceptor_windows::TextInjector::new();
-                                    injector.send_backspaces(word.len());
-                                    let expanded = if rep.contains("{date}") {
-                                        rep.replace("{date}", &chrono::Local::now().format("%B %d, %Y").to_string())
-                                    } else if rep.contains("{time}") {
-                                        rep.replace("{time}", &chrono::Local::now().format("%H:%M:%S").to_string())
-                                    } else {
-                                        rep
-                                    };
+                                    injector.send_backspaces(word.len() + 1);
+                                    let mut expanded = rep;
+                                    if expanded.contains("{date}") {
+                                        expanded = expanded.replace("{date}", &chrono::Local::now().format("%B %d, %Y").to_string());
+                                    }
+                                    if expanded.contains("{time}") {
+                                        expanded = expanded.replace("{time}", &chrono::Local::now().format("%H:%M:%S").to_string());
+                                    }
+                                    if expanded.contains("{clipboard}") {
+                                        let clip_text = arboard::Clipboard::new()
+                                            .and_then(|mut c| c.get_text())
+                                            .unwrap_or_default();
+                                        expanded = expanded.replace("{clipboard}", &clip_text);
+                                    }
                                     injector.inject_text(&expanded);
                                     let mut store = state.store.lock().unwrap_or_else(|e| e.into_inner());
                                     store.daily_stats.variables_used += 1;

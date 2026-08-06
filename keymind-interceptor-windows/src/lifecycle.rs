@@ -52,7 +52,7 @@ static mut HOOK_HANDLE: windows_sys::Win32::UI::WindowsAndMessaging::HHOOK = 0;
 #[cfg(target_os = "windows")]
 static SENDER: parking_lot::Mutex<Option<mpsc::Sender<Event>>> = parking_lot::const_mutex(None);
 #[cfg(target_os = "windows")]
-static WORD_BUFFER: parking_lot::Mutex<Vec<char>> = parking_lot::const_mutex(Vec::new());
+static WORD_BUFFER: parking_lot::Mutex<String> = parking_lot::const_mutex(String::new());
 
 #[cfg(target_os = "windows")]
 unsafe extern "system" fn low_level_keyboard_proc(
@@ -77,18 +77,17 @@ unsafe extern "system" fn low_level_keyboard_proc(
 
             if is_control && is_alt {
                 if let Some(ref sender) = *SENDER.lock() {
-                    if vk == 0x20 {
-                        let _ = sender.try_send(Event::PaletteRequested);
-                    } else if vk == 0x47 {
-                        let _ = sender.try_send(Event::HotKeyTriggered(2));
-                    } else if vk == 0x50 {
-                        let _ = sender.try_send(Event::HotKeyTriggered(3));
-                    } else if vk == 0x53 {
-                        let _ = sender.try_send(Event::HotKeyTriggered(4));
-                    } else if vk == 0x58 {
-                        let _ = sender.try_send(Event::HotKeyTriggered(5));
-                    } else if vk == 0x4B {
-                        let _ = sender.try_send(Event::HotKeyTriggered(6));
+                    let handled = match vk {
+                        0x20 => { let _ = sender.try_send(Event::PaletteRequested); true }
+                        0x47 => { let _ = sender.try_send(Event::HotKeyTriggered(2)); true }
+                        0x50 => { let _ = sender.try_send(Event::HotKeyTriggered(3)); true }
+                        0x53 => { let _ = sender.try_send(Event::HotKeyTriggered(4)); true }
+                        0x58 => { let _ = sender.try_send(Event::HotKeyTriggered(5)); true }
+                        0x4B => { let _ = sender.try_send(Event::HotKeyTriggered(6)); true }
+                        _ => false,
+                    };
+                    if handled {
+                        return 1;
                     }
                 }
             } else if !is_control && !is_alt {
@@ -98,7 +97,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
                         buf.push(ch);
                     } else if ch == ' ' || ch == '\r' || ch == '\n' || ch == '\t' || ch == '.' || ch == ',' || ch == '!' || ch == '?' {
                         if !buf.is_empty() {
-                            let word: String = buf.iter().collect();
+                            let word = buf.clone();
                             buf.clear();
                             drop(buf); // Release lock before trying sender
 
@@ -115,9 +114,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
             }
         } else if vk == VK_BACK as u32 {
             if let Some(mut buf) = WORD_BUFFER.try_lock() {
-                if !buf.is_empty() {
-                    buf.pop();
-                }
+                let _ = buf.pop();
             }
         }
     }

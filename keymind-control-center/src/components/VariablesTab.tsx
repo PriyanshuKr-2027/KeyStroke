@@ -123,10 +123,10 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
 
   return (
     <div className="space-y-6 animate-fade-in max-w-[760px] mx-auto pb-10 font-sans select-none text-[#EDEDED]">
-      {/* Header Bar */}
+      {/* Top Header Bar */}
       <div className="flex items-center justify-between">
         <h1 className="text-[22px] font-semibold text-[#EDEDED] tracking-tight">
-          Snippets & Variables
+          Text Shortcuts
         </h1>
 
         <div className="flex items-center gap-2">
@@ -143,7 +143,7 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
             className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#6366F1] hover:bg-[#4F46E5] text-white rounded-[7px] text-[13px] font-medium transition cursor-pointer shadow-sm"
           >
             <Plus className="w-4 h-4" />
-            <span>New Snippet</span>
+            <span>New Shortcut</span>
           </button>
         </div>
       </div>
@@ -151,9 +151,9 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
       {showCallout && (
         <CalloutCard
           headline="Type less. Say more."
-          body="Create text expanders (e.g. /email -> user@example.com) or dynamic tokens ({date}, {time}). KeyStroke replaces them instantly as you type."
+          body="Create custom text shortcuts (e.g. /email -> user@example.com) or dynamic tokens ({date}, {time}). KeyStroke replaces them instantly as you type."
           chips={[{ label: "/email" }, { label: "/zoom" }, { label: "{date}" }]}
-          ctaLabel="Add snippet"
+          ctaLabel="Add shortcut"
           onCtaClick={handleOpenAddModal}
           onDismiss={() => setShowCallout(false)}
         />

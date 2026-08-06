@@ -115,25 +115,48 @@ export const CopilotPalette: React.FC<CopilotPaletteProps> = ({
 
         {/* Dynamic Body */}
         {statusState === "idle" && (
-          <div className="px-4 py-3 flex items-start gap-3">
-            <div className="w-6 h-6 rounded-[6px] bg-[#6366F1] flex items-center justify-center text-white shrink-0 mt-1 shadow-sm">
-              <Sparkles className="w-3.5 h-3.5" />
+          <div className="p-4 space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="w-6 h-6 rounded-[6px] bg-[#6366F1] flex items-center justify-center text-white shrink-0 mt-1 shadow-sm">
+                <Sparkles className="w-3.5 h-3.5" />
+              </div>
+
+              <textarea
+                ref={textareaRef}
+                rows={1}
+                value={promptInput}
+                onChange={(e) => setPromptInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Ask anything — rewrite, summarize, translate, explain…"
+                className="flex-1 bg-transparent text-[14px] text-[#EDEDED] placeholder-[#5C5C62] resize-none focus:outline-none min-h-[36px] max-h-[140px] leading-relaxed"
+              />
+
+              <div className="flex items-center gap-1.5 shrink-0 self-center">
+                <span className="px-2 py-0.5 bg-[#28282D] border border-[rgba(255,255,255,0.08)] rounded-[5px] text-[10px] font-mono text-[#8F8F96]">
+                  ↵ enter
+                </span>
+              </div>
             </div>
 
-            <textarea
-              ref={textareaRef}
-              rows={1}
-              value={promptInput}
-              onChange={(e) => setPromptInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Ask anything — rewrite, summarize, translate, explain…"
-              className="flex-1 bg-transparent text-[14px] text-[#EDEDED] placeholder-[#5C5C62] resize-none focus:outline-none min-h-[36px] max-h-[140px] leading-relaxed"
-            />
-
-            <div className="flex items-center gap-1.5 shrink-0 self-center">
-              <span className="px-2 py-0.5 bg-[#28282D] border border-[rgba(255,255,255,0.08)] rounded-[5px] text-[10px] font-mono text-[#8F8F96]">
-                ↵ enter
-              </span>
+            {/* Friendly Quick Action Chips */}
+            <div className="flex items-center gap-2 pt-1 border-t border-[rgba(255,255,255,0.06)]">
+              {[
+                { label: "Rewrite Clearly", prompt: "Rewrite clearly to improve flow and readability" },
+                { label: "Fix Spelling & Grammar", prompt: "Fix all spelling and grammar errors" },
+                { label: "Make Formal", prompt: "Rewrite in a professional, formal tone" },
+                { label: "Summarize", prompt: "Summarize into bullet points" },
+              ].map((chip, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => {
+                    setPromptInput(chip.prompt);
+                    executePrompt();
+                  }}
+                  className="px-2.5 py-1 bg-[#1F1F23] hover:bg-[#28282D] border border-[rgba(255,255,255,0.08)] text-[#8F8F96] hover:text-[#EDEDED] rounded-[6px] text-[12px] font-medium transition cursor-pointer"
+                >
+                  {chip.label}
+                </button>
+              ))}
             </div>
           </div>
         )}

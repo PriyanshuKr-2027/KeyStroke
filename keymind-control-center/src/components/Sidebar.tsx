@@ -38,11 +38,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const navItems = [
     { id: "dashboard", label: "Home", icon: Home },
-    { id: "memory", label: "Dictionary", icon: Book },
-    { id: "variables", label: "Snippets", icon: Code2 },
-    { id: "grammar", label: "Grammar", icon: CheckCheck },
+    { id: "memory", label: "My Dictionary", icon: Book },
+    { id: "variables", label: "Text Shortcuts", icon: Code2 },
+    { id: "grammar", label: "Grammar & Auto-Fix", icon: CheckCheck },
     { id: "apps", label: "App Rules", icon: AppWindow },
-    { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
+    { id: "shortcuts", label: "Keybindings", icon: Keyboard },
   ];
 
   return (

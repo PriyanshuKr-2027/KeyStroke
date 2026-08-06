@@ -112,17 +112,20 @@ export const GrammarTab: React.FC<GrammarTabProps> = ({
       {/* Toggles Group */}
       <div className="space-y-2 pt-2">
         <div className="text-[11px] font-mono font-semibold tracking-wider text-[#8F8F96] uppercase">
-          ACTIVE CORRECTION LAYERS
+          WRITING ASSISTANT FEATURES
         </div>
         <div className="bg-[#161618] border border-[rgba(255,255,255,0.08)] rounded-[10px] divide-y divide-[rgba(255,255,255,0.08)]">
           {[
-            { label: "Native nlprule Engine (Pure Rust, Sub-20ms)", state: nlprule, set: setNlprule },
-            { label: "SymSpell Autocorrect (Edit Distance <= 2)", state: symSpell, set: setSymSpell },
-            { label: "Homophone Resolver (their / there / they're)", state: homophone, set: setHomophone },
-            { label: "Stupid Backoff Trigram Predictions", state: nextWord, set: setNextWord },
+            { label: "Grammar & Punctuation Assistant", desc: "Catches sentence errors and missing punctuation", state: nlprule, set: setNlprule },
+            { label: "Smart Autocorrect", desc: "Fixes typos automatically as you type", state: symSpell, set: setSymSpell },
+            { label: "Homophone Fixer", desc: "Corrects words like 'their', 'there', and 'they're'", state: homophone, set: setHomophone },
+            { label: "Predictive Typing Suggestions", desc: "Shows next-word suggestions right next to your cursor", state: nextWord, set: setNextWord },
           ].map((row, idx) => (
-            <div key={idx} className="h-[48px] px-4 flex items-center justify-between">
-              <span className="text-[13px] text-[#EDEDED]">{row.label}</span>
+            <div key={idx} className="px-4 py-3 flex items-center justify-between">
+              <div>
+                <p className="text-[13px] font-medium text-[#EDEDED]">{row.label}</p>
+                <p className="text-[11px] text-[#8F8F96]">{row.desc}</p>
+              </div>
               <button
                 onClick={() => row.set(!row.state)}
                 className={`w-10 h-5 rounded-full transition relative cursor-pointer ${

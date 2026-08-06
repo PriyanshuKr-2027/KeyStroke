@@ -9,8 +9,8 @@ interface GhostTextOverlayProps {
 }
 
 export const GhostTextOverlay: React.FC<GhostTextOverlayProps> = ({
-  suggestions = ["future", "me know", "financial results"],
-  confidence = 0.85,
+  suggestions = ["further assistance", "let me know", "best regards"],
+  confidence = 0.88,
   onAcceptFull,
   onAcceptWord,
   onDismiss,
@@ -46,17 +46,28 @@ export const GhostTextOverlay: React.FC<GhostTextOverlayProps> = ({
   }
 
   const primarySuggestion = suggestions[0];
+  const firstWord = primarySuggestion.split(" ")[0];
+  const hasMultipleWords = primarySuggestion.trim().includes(" ");
 
   return (
-    <div className="fixed top-12 left-12 z-50 font-['Inter',sans-serif] pointer-events-none select-none">
-      <div className="bg-[#141414]/90 backdrop-blur-md border border-[#2A2A2A] rounded-lg px-2.5 py-1 shadow-xl flex items-center gap-2">
-        <span className="text-[14px] italic font-medium text-[#888888] tracking-wide">
-          {primarySuggestion}
-        </span>
-        <span className="text-[9px] font-bold text-[#8B5CF6] bg-[#8B5CF6]/20 px-1 py-0.2 rounded border border-[#8B5CF6]/30">
-          Tab ⇆
-        </span>
-      </div>
+    <div className="inline-flex items-center gap-2 font-['Inter',sans-serif] pointer-events-none select-none animate-in fade-in zoom-in-95 duration-150">
+      {/* Ghost text display */}
+      <span className="text-[13px] font-medium text-emerald-400/80 bg-emerald-950/30 px-2 py-0.5 rounded border border-emerald-500/20 shadow-sm flex items-center gap-2">
+        <span className="opacity-60">…</span>
+        <span className="tracking-wide">{primarySuggestion}</span>
+
+        {/* Shortcut Badges */}
+        <div className="flex items-center gap-1.5 ml-1">
+          <span className="text-[10px] font-mono font-semibold bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-500/30">
+            Tab ↵
+          </span>
+          {hasMultipleWords && (
+            <span className="text-[9px] font-mono font-medium bg-neutral-800 text-neutral-400 px-1.5 py-0.5 rounded border border-neutral-700">
+              Ctrl+→ <span className="text-neutral-500">({firstWord})</span>
+            </span>
+          )}
+        </div>
+      </span>
     </div>
   );
 };

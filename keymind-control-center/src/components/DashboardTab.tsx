@@ -134,15 +134,15 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
 
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-[#22C55E] animate-pulse" />
-          <span className="text-[12px] font-mono text-[#8F8F96]">Engine Active (nlprule + SymSpell)</span>
+          <span className="text-[12px] font-medium text-[#8F8F96]">Smart Writing Active</span>
         </div>
       </div>
 
       {showCallout && (
         <CalloutCard
-          headline="KeyStroke is active."
-          body="Your local keyboard hook is active and processing keystrokes system-wide. Type anywhere — typos auto-correct and next-word suggestions appear in real time."
-          chips={[{ label: "Local nlprule" }, { label: "Stupid Backoff N-grams" }]}
+          headline="KeyStroke is running smoothly in the background."
+          body="Type anywhere in your daily apps — typos fix automatically, and next-word suggestions appear directly beside your cursor."
+          chips={[{ label: "Smart Autocorrect" }, { label: "Predictive Typing" }]}
           ctaLabel="Test sandbox"
           onCtaClick={() => {}}
           onDismiss={() => setShowCallout(false)}

@@ -40,7 +40,11 @@ jobs:
           prerelease: false
 
       - name: Submit to SignPath for code signing
-        if: ${{ secrets.SIGNPATH_API_TOKEN != '' && secrets.SIGNPATH_ORGANIZATION_ID != '' }}
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        if: env.SIGNPATH_API_TOKEN != '' && env.SIGNPATH_ORGANIZATION_ID != ''
         uses: signpath/github-action-submit-signing-request@v1
         with:
           api-token: '${{ secrets.SIGNPATH_API_TOKEN }}'
@@ -50,5 +54,3 @@ jobs:
           github-artifact-id: 'keystroke-windows'
           wait-for-completion: true
           output-artifact-directory: 'signed-output'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

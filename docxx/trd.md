@@ -1,152 +1,75 @@
-# KeyMind — Technical Requirements Document (TRD)
+# KeyStroke — Technical Requirements Document (TRD)
 
-## 1. System Architecture Diagram
+## 1. System Architecture Overview
 
-KeyMind is architected as a modular Rust workspace composed of low-level OS native hooks, high-performance C/C++ bindings, SQLite data storage, ONNX machine learning runtime, and a Tauri/React desktop interface.
+KeyStroke is structured as a multi-crate Rust workspace integrated with a Tauri frontend:
 
 ```
-+-----------------------------------------------------------------------------------+
-|                            TAURI / REACT FRONTEND UI                              |
-|   (Sidebar Navigation, Dashboard Metrics, Variables Manager, Grammar Sandbox)     |
-+-----------------------------------------------------------------------------------+
-                                         │  IPC Bridge (Tauri Command / JSON-RPC)
-                                         ▼
-+-----------------------------------------------------------------------------------+
-|                                KEYMIND CORE DAEMON                                |
-|                                (keymind-engine)                                   |
-+-----------------------------------------------------------------------------------+
-       │                         │                        │                     │
-       ▼                         ▼                        ▼                     ▼
-[Key Interceptor]       [Autocorrect Engine]    [Prediction Engine]   [Grammar Engine]
-keymind-interceptor     keymind-autocorrect     keymind-prediction    keymind-grammar
-(Win32 Hook /           (SymSpell 0.5.2 +       (Trigram Model +      (LanguageTool
- CGEventTap)             SQLite Dictionary)      ONNX Runtime)         HTTP Server Client)
-                                 │                                              │
-                                 ▼                                              ▼
-                         [Local Storage]                              [Dual AI Failover]
-                         SQLite DB Pool                               Groq + Cerebras
-                         (dictionary.db)                              Llama 3.3 70B
+[ Windows WH_KEYBOARD_LL / macOS CGEventTap ]
+                     │
+                     ▼ (Raw VK Events)
+     [ keymind-interceptor-windows ]
+                     │
+                     ▼ (WordCompleted / Event Channel)
+        [ keymind-control-center ] (Tauri Core)
+       /             │             \
+      ▼              ▼              ▼
+[Autocorrect]   [Grammar Engine]  [AI Copilot]
+(SymSpell+10k)    (nlprule)      (Groq/Cerebras)
 ```
 
 ---
 
-## 2. Crate & Subsystem Specifications
+## 2. Component Specifications
 
-### 2.1 `keymind-interceptor-windows`
-* **Technology**: Win32 API (`windows-sys`, `user32.dll`).
-* **Hook Mechanism**: `SetWindowsHookExW` registering a `WH_KEYBOARD_LL` (low-level keyboard) callback procedure with direct event-handler channel loop integration (`lifecycle.rs`).
-* **Threading**: Dedicated thread running a standard Win32 message loop (`GetMessageW` / `DispatchMessageW`) to prevent OS input freezes.
-* **Global Hotkeys**: Maps all 6 system-wide hotkeys (`Ctrl+Alt+Space` for Autocorrect, `Ctrl+Alt+G` for Grammar, `Ctrl+Alt+P` for Prediction, `Ctrl+Alt+M` for Menu, `Ctrl+Alt+S` for Snippet, `Ctrl+Alt+W` for Window focus).
-* **Latency SLA**: < 1ms per keypress event.
+### 2.1 Low-Level Keyboard Interceptor (`keymind-interceptor-windows`)
+* **Hook Mechanism**: `SetWindowsHookExW(WH_KEYBOARD_LL, low_level_keyboard_proc, ...)` running inside a dedicated Win32 message pump thread (`GetMessageW`).
+* **Pause / Resume State**: Managed via static `INTERCEPTOR_ACTIVE: AtomicBool`. When `false`, `low_level_keyboard_proc` returns `CallNextHookEx` immediately.
+* **Synthetic Event Protection**: Static `IS_INJECTING: AtomicBool` guard. When `true`, hook skips buffer processing. Includes a 25ms post-backspace delay in `send_backspaces` to flush OS event queues before injecting replacement characters.
+* **Buffer Management**: `WORD_BUFFER` stores characters typed between whitespace delimiters (`' '`, `'\t'`, `'\r'`, `'\n'`). Public `clear_word_buffer()` function allows the main engine to reset the buffer after every text injection.
 
-### 2.2 `keymind-autocorrect`
-* **Technology**: `symspell 0.5.2`, `sqlx` / `rusqlite`, SQLite 3.
-* **Dictionary Data**: `frequency_dictionary_en_82k.txt` indexed into an in-memory SymSpell hash map.
-* **Database Pool**: Thread-safe `Arc<SqlitePool>` accessing `keymind-autocorrect/data/dictionary.db`.
-* **Homophone Resolution**: Pattern match maps for homophone pairs (`their`/`there`/`they're`, `then`/`than`, `your`/`you're`).
-* **Dictionary Hygiene**: Strict validation requiring typo entries (`teh`, `recieve`) to be omitted from valid vocabulary dictionaries so SymSpell lookup triggers replacement logic.
+### 2.2 Autocorrect Engine (`keymind-autocorrect`)
+* **Layer 0 (Google-10k Whitelist)**: Embedded `google-10000-english-no-swears.txt` parsed into a static `OnceLock<HashSet<&'static str>>`. O(1) hash check bypasses autocorrect entirely for common words (`issue`, `grammar`, `this`, `from`, etc.).
+* **Layer 1 (Short Word Gate)**: Words $\le 3$ characters are skipped.
+* **Layer 2 (SymSpell Engine)**: `SymSpellBuilder` initialized with `max_dictionary_edit_distance(1)` and `prefix_length(7)` over an 82k unigram frequency dictionary. Unified single lookup with `Verbosity::Closest` at distance 1.
+* **Spatial QWERTY Matrix**: `is_qwerty_typo()` calculates single-substitution key adjacency. Adjacent typos require $2.5\times$ candidate frequency threshold; non-adjacent typos require $10.0\times$.
 
-### 2.3 `keymind-prediction`
-* **Technology**: Trigram model structure, ONNX Runtime (`ort` C++ bindings), `tokenizers`.
-* **Inference Pipeline**: Evaluates 2-word typing context (`context = "how are"`), calculates conditional probabilities against n-gram dictionary, and outputs top candidate predictions (e.g. `you`, `there`).
-* **Memory Optimization**: Model weights loaded via `mmap` to minimize RAM consumption (< 25MB).
+### 2.3 Rejection Memory (`AppState`)
+* **Structure**: `user_correction_overrides: Mutex<HashSet<String>>` stored in global `AppState`.
+* **Flow**:
+  1. When autocorrect replaces word $W$ with $S$, $W.to_lowercase()$ is inserted into `user_correction_overrides`.
+  2. On subsequent `WordCompleted` events for $W$, `is_user_rejected` evaluates to `true`, skipping autocorrect entirely.
 
-### 2.4 `keymind-grammar`
-* **Technology**: `reqwest`, `serde_json`, `arboard` (Clipboard management).
-* **Right-to-Left Replacement Algorithm**:
-  ```rust
-  // Sort detected grammar issues by start offset in DESCENDING order
-  issues.sort_by(|a, b| b.offset.cmp(&a.offset));
-  for issue in issues {
-      let start = issue.offset;
-      let end = start + issue.length;
-      result.replace_range(start..end, &issue.replacement);
-  }
-  ```
-  *This guarantees that replacing text at the end of a string does not shift character indices for earlier errors.*
-* **HTTP Client**: Connects to local or remote LanguageTool server (`http://127.0.0.1:8081/v2/check`) with automatic retry and timeout handling.
+### 2.4 Text Shortcuts & Variables Engine
+* **Trigger Constraint**: Triggers strictly when `word.starts_with('/')`.
+* **Matching**: Strips the leading `/` and searches `store.variables` against `/key`, `key`, or `clean_key`.
+* **Placeholders**: Dynamically evaluates `{date}` (`%B %d, %Y`), `{time}` (`%H:%M:%S`), and `{clipboard}` (via `arboard`).
+* **Injection**: Sends `word.len() + 1` backspaces, injects replacement text, and executes `clear_word_buffer()`.
 
-### 2.5 `keymind-variables`
-* **Technology**: Dynamic evaluation engine.
-* **Resolution Pipeline**:
-  - `Static`: Evaluates raw string literal replacement.
-  - `Dynamic`: Evaluates runtime expressions (`/date` $\rightarrow$ `Local::now()`, `/time`, `/clipboard`).
-  - `AI`: Dispatches system prompt + context to AI provider client.
-
-### 2.6 `keymind-sync-server` (Dual AI Copilot Client)
-* **Primary Provider**: **Groq API** (`llama-3.3-70b-versatile`) for ultra-fast response (< 150ms).
-* **Failover Provider**: **Cerebras API** (`llama3.1-8b`) automatically triggered if Groq returns HTTP 429 (Rate Limit) or HTTP 5xx errors.
-
-### 2.7 `keymind-control-center` (Tauri Desktop App & IPC Bridge)
-* **Technology**: Tauri 1.x / 2.x, React 18, TypeScript, Tailwind CSS.
-* **IPC Command Bridge**: Exposes system commands including `open_accessibility_settings`, live shortcut recording, per-app whitelist/blacklist toggles, and dictionary state manipulation.
-* **Thread Safety**: Mutex lock stabilization across all backend state handlers prevents deadlocks and panics under rapid IPC calls.
+### 2.5 Global Hotkeys & Automated Actions
+* **Registration**: Win32 `RegisterHotKey` calls in message loop thread.
+* **Event Dispatch**: Async event loop receives `Event::HotKeyTriggered(id)` and invokes `handle_shortcut_trigger(id).await`.
+* **Actions**:
+  * `"copilot_palette"`: Awaits `open_palette_window(app_handle).await`.
+  * `"copilot_summarize"` / `"copilot_professional"` / `"ai_expand"` / `"grammar_fix"`: Simulates `Ctrl+C`, reads selected text from clipboard, calls `run_copilot_prompt` or `GrammarEngine`, updates clipboard with result, and simulates `Ctrl+V`.
 
 ---
 
-## 3. Database Schema & Data Models
+## 3. UI Design System & RAM Optimization
 
-Database schema stored in SQLite (`keymind-autocorrect/data/dictionary.db`):
+### 3.1 Claude Theme Design System
+* **Claude Light**: Paper background (`#FAF8F5`), white card surfaces (`#FFFFFF`), warm border (`#E8E4DC`), dark primary text (`#1E1E1E`), terracotta accent (`#DA7756`).
+* **Claude Dark**: Charcoal background (`#1B1917`), dark card surfaces (`#22201D`), border (`#383430`), light primary text (`#ECE9E3`), terracotta accent (`#DA7756`).
 
-```sql
--- Frequency Dictionary Table
-CREATE TABLE IF NOT EXISTS frequency_dictionary (
-    word TEXT PRIMARY KEY,
-    count INTEGER NOT NULL
-);
-
--- Custom User Whitelist
-CREATE TABLE IF NOT EXISTS custom_whitelist (
-    id TEXT PRIMARY KEY,
-    word TEXT UNIQUE NOT NULL,
-    date_added TEXT NOT NULL
-);
-
--- Learned Frequent Phrases
-CREATE TABLE IF NOT EXISTS learned_phrases (
-    id TEXT PRIMARY KEY,
-    phrase TEXT UNIQUE NOT NULL,
-    frequency INTEGER DEFAULT 1,
-    is_pinned BOOLEAN DEFAULT 0,
-    app_name TEXT
-);
-
--- Snippets & Variables
-CREATE TABLE IF NOT EXISTS user_variables (
-    key TEXT PRIMARY KEY,
-    var_type TEXT NOT NULL, -- 'static', 'dynamic', 'ai'
-    value TEXT,
-    ai_prompt TEXT,
-    description TEXT,
-    use_count INTEGER DEFAULT 0
-);
-
--- Per-App Preferences
-CREATE TABLE IF NOT EXISTS app_preferences (
-    app_bundle_id TEXT PRIMARY KEY,
-    app_name TEXT NOT NULL,
-    autocorrect_enabled BOOLEAN DEFAULT 1,
-    grammar_enabled BOOLEAN DEFAULT 1,
-    ai_copilot_enabled BOOLEAN DEFAULT 1,
-    is_blocked BOOLEAN DEFAULT 0
-);
-```
+### 3.2 WebView2 Memory Optimization
+* **Chromium Flags**: `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` set to `--disable-gpu --disable-gpu-compositing --renderer-process-limit=1 --js-flags="--max-old-space-size=48"`.
+* **OS Heap Trimming**: Background thread invokes `SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX)` every 30 seconds to return unallocated heap memory to Windows OS.
 
 ---
 
-## 4. Build System & Toolchain Setup
+## 4. Windows Deployment & Code Signing
 
-* **Compiler Toolchain**: Rust `1.85+` target `x86_64-pc-windows-msvc` or `x86_64-pc-windows-gnu`.
-* **Linker Resolution**: Modern 64-bit MinGW-w64 (`winlibs-x86_64-posix-seh-gcc-16.1.0`) placed at the top of System `PATH` to resolve GNU `dlltool.exe` conflicts during `windows-sys` and `libsqlite3-sys` compilation.
-* **Bundling & Installer**: Windows `downloadBootstrapper` configured for WebView2 runtime installer bundling in NSIS / MSI installers.
-* **Frontend Build**: Vite 5 + React 18 + Tailwind CSS 3.4 (`postcss.config.js` and `tailwind.config.js` configured for PostCSS pipeline).
-
----
-
-## 5. Distribution Artifacts & Release Specifications
-
-| Artifact File | Size | Distribution Type | Features & Bundling |
-| :--- | :--- | :--- | :--- |
-| `KeyStroke_Installer_v0.1.0.exe` | 7.5 MB | Windows NSIS Setup | WebView2 bootstrapper, auto-start service registration, system hook drivers |
-| `KeyStroke_v0.1.0_Portable_x64.zip` | 10.8 MB | Portable Standalone Zip | Zero-install portable bundle, pre-compiled Rust core engine, embedded SQLite dictionaries |
-
+* **Manifest**: `keystroke.manifest` with `uiAccess="true"` and `asInvoker` privileges.
+* **Resource Embedding**: `keystroke.rc` compiled into `src-tauri` binary via `build.rs` using `embed-resource`.
+* **Installation Target**: `tauri.conf.json` configured with `"installMode": "perMachine"` targeting `C:\Program Files\KeyStroke\`.
+* **SignPath CI/CD**: `release.yml` GitHub Actions workflow configured with `signpath/github-action-submit-signing-request@v1` using `SIGNPATH_API_TOKEN` and `SIGNPATH_ORGANIZATION_ID` secrets.

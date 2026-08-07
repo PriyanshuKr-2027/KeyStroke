@@ -1,3 +1,10 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Global injection-in-progress guard.
+/// Set to `true` while synthetic SendInput events are being fired so the
+/// low_level_keyboard_proc hook skips those keystrokes and avoids double-buffering.
+pub(crate) static IS_INJECTING: AtomicBool = AtomicBool::new(false);
+
 /// Text and backspace injector for Windows using SendInput.
 #[derive(Clone, Default)]
 pub struct TextInjector;
@@ -8,12 +15,15 @@ impl TextInjector {
     }
 
     /// Inject text using SendInput with KEYEVENTF_UNICODE.
+    /// The IS_INJECTING guard is set for the entire duration so the hook ignores these events.
     pub fn inject_text(&self, text: &str) {
         #[cfg(target_os = "windows")]
         {
             use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
                 SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
             };
+
+            IS_INJECTING.store(true, Ordering::SeqCst);
 
             for c in text.chars() {
                 let mut utf16_buf = [0u16; 2];
@@ -52,6 +62,8 @@ impl TextInjector {
                     }
                 }
             }
+
+            IS_INJECTING.store(false, Ordering::SeqCst);
         }
 
         #[cfg(not(target_os = "windows"))]
@@ -61,12 +73,18 @@ impl TextInjector {
     }
 
     /// Send `n` backspace key events using SendInput VK_BACK (0x08).
+    /// IS_INJECTING is set so the hook does not pop those backspaces off WORD_BUFFER
+    /// (the buffer is cleared by clear_word_buffer() from main.rs instead).
+    /// A 25 ms pause after all backspaces ensures the OS finishes processing them
+    /// before the replacement text arrives, preventing the doubled-first-letter race.
     pub fn send_backspaces(&self, n: usize) {
         #[cfg(target_os = "windows")]
         {
             use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
                 SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_BACK,
             };
+
+            IS_INJECTING.store(true, Ordering::SeqCst);
 
             for _ in 0..n {
                 let mut inputs = [
@@ -100,6 +118,14 @@ impl TextInjector {
                     SendInput(2, inputs.as_mut_ptr(), std::mem::size_of::<INPUT>() as i32);
                 }
             }
+
+            // Critical: Wait for OS to flush all backspace events before injecting
+            // replacement text. Without this pause, the hook can see the first
+            // injected character BEFORE all backspaces have been processed, causing
+            // the doubled-first-letter bug (Bug 4).
+            std::thread::sleep(std::time::Duration::from_millis(25));
+
+            IS_INJECTING.store(false, Ordering::SeqCst);
         }
 
         #[cfg(not(target_os = "windows"))]

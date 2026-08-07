@@ -139,20 +139,68 @@ pub fn update_shortcut_binding(
 
 #[tauri::command]
 pub async fn handle_shortcut_trigger(id: String) -> Result<String, String> {
-    // 1. Simulate copy
-    simulate_copy();
+    // 1. Simulate copy to get current selected text
+    let injector = keymind_interceptor_windows::TextInjector::new();
+    injector.simulate_copy();
 
-    tokio::time::sleep(std::time::Duration::from_millis(75)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-    // 2. Read clipboard
-    if let Ok(mut cb) = Clipboard::new() {
-        if let Ok(selection) = cb.get_text() {
-            info!("Shortcut triggered: {} for selection len {}", id, selection.len());
-            return Ok(selection);
+    // 2. Read selected text from clipboard
+    let selection = if let Ok(mut cb) = Clipboard::new() {
+        cb.get_text().unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    info!("Shortcut triggered: '{}' with selected text length {}", id, selection.len());
+
+    let replacement_text = match id.as_str() {
+        "copilot_summarize" => {
+            crate::copilot::run_copilot_prompt(
+                "Summarize the following text concisely:".to_string(),
+                selection.clone(),
+                "".to_string(),
+            )
+            .await?
+        }
+        "copilot_professional" => {
+            crate::copilot::run_copilot_prompt(
+                "Rewrite the following text professionally and clearly:".to_string(),
+                selection.clone(),
+                "".to_string(),
+            )
+            .await?
+        }
+        "ai_expand" => {
+            crate::copilot::run_copilot_prompt(
+                "Expand on the following text with clear details:".to_string(),
+                selection.clone(),
+                "".to_string(),
+            )
+            .await?
+        }
+        "grammar_fix" => {
+            if selection.trim().is_empty() {
+                return Err("No text selected for grammar fix".to_string());
+            }
+            let engine = keymind_grammar::GrammarEngine::new(8081);
+            let fixed = engine.fix_text(&selection).await;
+            if fixed.is_empty() { selection.clone() } else { fixed }
+        }
+        _ => return Ok(selection),
+    };
+
+    // 3. Write replacement back to clipboard and paste into active window
+    if !replacement_text.trim().is_empty() && replacement_text != selection {
+        if let Ok(mut cb) = Clipboard::new() {
+            let _ = cb.set_text(replacement_text.clone());
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            injector.simulate_paste();
+            info!("Successfully executed shortcut '{}' and pasted response.", id);
         }
     }
-    
-    Err("Failed to read from clipboard".to_string())
+
+    Ok(replacement_text)
 }
 
 #[tauri::command]

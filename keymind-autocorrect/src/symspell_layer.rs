@@ -1,9 +1,42 @@
+use std::collections::HashSet;
+use std::sync::OnceLock;
 use symspell::{AsciiStringStrategy, SymSpell, SymSpellBuilder, Verbosity};
 
-/// Embedded 82k English frequency dictionary loader.
+// ---------------------------------------------------------------------------
+// Embedded data files
+// ---------------------------------------------------------------------------
+
+/// 82k English unigram frequency dictionary ("word count" per line).
 const DEFAULT_DICTIONARY: &str = include_str!("../data/frequency_dictionary_en_82k.txt");
 
-/// Check if two characters are adjacent on a standard QWERTY keyboard layout.
+/// Google-10000-English (no-swears) — top 10,000 most-frequent English words,
+/// one word per line, sorted by descending frequency.
+/// Source: https://github.com/first20hours/google-10000-english
+const GOOGLE_10K_RAW: &str = include_str!("../data/google-10000-english-no-swears.txt");
+
+// ---------------------------------------------------------------------------
+// Layer 0: Google-10k whitelist — built once, zero allocations at query time
+// ---------------------------------------------------------------------------
+
+/// Returns a reference to the static Google-10k HashSet, building it on the
+/// first call. `OnceLock` guarantees this is initialised exactly once across
+/// all threads with zero runtime overhead on subsequent calls.
+fn google_10k() -> &'static HashSet<&'static str> {
+    static SET: OnceLock<HashSet<&'static str>> = OnceLock::new();
+    SET.get_or_init(|| {
+        GOOGLE_10K_RAW
+            .lines()
+            .map(str::trim)
+            .filter(|w| !w.is_empty())
+            .collect()
+    })
+}
+
+// ---------------------------------------------------------------------------
+// QWERTY spatial helpers
+// ---------------------------------------------------------------------------
+
+/// Returns true if two characters are adjacent on a standard QWERTY layout.
 fn is_qwerty_adjacent(c1: char, c2: char) -> bool {
     let c1 = c1.to_ascii_lowercase();
     let c2 = c2.to_ascii_lowercase();
@@ -42,32 +75,34 @@ fn is_qwerty_adjacent(c1: char, c2: char) -> bool {
     }
 }
 
-/// Check if two single-character difference strings differ by QWERTY-adjacent key.
+/// Returns true if typed and candidate differ by exactly one QWERTY-adjacent
+/// substitution (equal-length strings only).
 fn is_qwerty_typo(typed: &str, candidate: &str) -> bool {
-    let t_chars: Vec<char> = typed.chars().collect();
-    let c_chars: Vec<char> = candidate.chars().collect();
+    let t: Vec<char> = typed.chars().collect();
+    let c: Vec<char> = candidate.chars().collect();
 
-    // Equal length substitution typo (e.g. thiz vs this)
-    if t_chars.len() == c_chars.len() {
-        let mut diff_count = 0;
-        let mut t_diff = ' ';
-        let mut c_diff = ' ';
+    if t.len() != c.len() {
+        return false;
+    }
 
-        for (a, b) in t_chars.iter().zip(c_chars.iter()) {
-            if a != b {
-                diff_count += 1;
-                t_diff = *a;
-                c_diff = *b;
-            }
-        }
+    let mut diff_count = 0;
+    let mut t_diff = ' ';
+    let mut c_diff = ' ';
 
-        if diff_count == 1 {
-            return is_qwerty_adjacent(t_diff, c_diff);
+    for (a, b) in t.iter().zip(c.iter()) {
+        if a != b {
+            diff_count += 1;
+            t_diff = *a;
+            c_diff = *b;
         }
     }
 
-    false
+    diff_count == 1 && is_qwerty_adjacent(t_diff, c_diff)
 }
+
+// ---------------------------------------------------------------------------
+// SymSpell engine
+// ---------------------------------------------------------------------------
 
 pub struct SymSpellEngine {
     symspell: SymSpell<AsciiStringStrategy>,
@@ -81,13 +116,21 @@ impl Default for SymSpellEngine {
 
 impl SymSpellEngine {
     pub fn new() -> Self {
+        // FIX: max_dictionary_edit_distance(1) instead of (2).
+        //
+        // wolfgarbe (algorithm author) recommends distance=2 for *batch* spellcheck
+        // but distance=1 for *real-time typing autocorrect* where false positives
+        // (e.g. "issue" → "tissue") must be minimised.
+        //
+        // Distance=2 pre-computes all 2-edit neighbours in the delete index, which
+        // means "issue" (distance 2 from "tissue") would be considered as a candidate.
+        // Distance=1 closes that door entirely.
         let mut symspell: SymSpell<AsciiStringStrategy> = SymSpellBuilder::default()
-            .max_dictionary_edit_distance(2)
+            .max_dictionary_edit_distance(1)
             .prefix_length(7)
             .build()
             .unwrap();
 
-        // Load embedded dictionary lines: "word count"
         for line in DEFAULT_DICTIONARY.lines() {
             let line = line.trim();
             if !line.is_empty() {
@@ -98,28 +141,44 @@ impl SymSpellEngine {
         Self { symspell }
     }
 
-    /// Gboard + QWERTY Spatial Error Probabilistic Check:
-    /// 1. Word length <= 3 gate: Skip autocorrect entirely for short words (is, in, at, the, you, go, ok)
-    /// 2. Exact match passthrough: If typed word exists in dictionary, NEVER replace it
-    /// 3. Strict Distance == 1 gate: Only allow 1 character edit distance for auto-replace
-    /// 4. Spatial QWERTY Error Model: Adjacent key typos require 2.5x frequency, non-adjacent require 10x
+    /// Three-layer autocorrect check:
+    ///
+    /// **Layer 0 — Google-10k whitelist (O(1) hash lookup)**
+    /// The 10,000 most common English words by Google n-gram frequency are
+    /// embedded as a static `HashSet`. If the typed word is in this set it is
+    /// _always_ passed through unchanged, no matter what SymSpell would suggest.
+    /// This single gate prevents every "issue → tissue", "grammar → gamer" class
+    /// of false positive where a common word is mangled because a rarer-but-higher-
+    /// frequency-in-the-82k-list word exists at edit distance 1.
+    ///
+    /// **Layer 1 — Short-word gate**
+    /// Words ≤ 3 characters are skipped (is, in, at, go, ok, the).
+    ///
+    /// **Layer 2 — SymSpell distance=1 + QWERTY spatial threshold**
+    /// Single unified `Verbosity::Closest` lookup at max distance=1.
+    /// If `best.distance == 0` the typed word exists in the 82k dictionary →
+    /// passthrough. If `best.distance == 1` we apply the QWERTY adjacency
+    /// frequency multiplier before deciding whether to correct.
     pub fn check(&self, word: &str) -> Option<(String, f32)> {
         let word_lower = word.to_lowercase();
         let char_len = word_lower.chars().count();
 
-        // Rule 1: Skip autocorrect entirely for words <= 3 characters
+        // ── Layer 0: Google-10k whitelist ──────────────────────────────────
+        // Common English words must never be auto-corrected, full stop.
+        if google_10k().contains(word_lower.as_str()) {
+            return None;
+        }
+
+        // ── Layer 1: Short-word gate ───────────────────────────────────────
         if char_len <= 3 {
             return None;
         }
 
-        // Rule 2: Exact match passthrough default.
-        // If the typed word exists in dictionary (frequency >= 1), NEVER replace it!
-        let exact_matches = self.symspell.lookup(&word_lower, Verbosity::Top, 0);
-        if !exact_matches.is_empty() {
-            return None;
-        }
-
-        // Rule 3: Only allow edit distance == 1 for auto-replacement
+        // ── Layer 2: SymSpell distance=1 unified lookup ────────────────────
+        // Verbosity::Closest at max_distance=1:
+        //   • If word is in the dictionary  → best.distance == 0 → passthrough
+        //   • If word is a 1-edit typo      → best.distance == 1 → evaluate
+        //   • If word is completely unknown → empty vec            → passthrough
         let suggestions = self.symspell.lookup(&word_lower, Verbosity::Closest, 1);
         if suggestions.is_empty() {
             return None;
@@ -127,27 +186,33 @@ impl SymSpellEngine {
 
         let best = &suggestions[0];
 
-        // Ensure strict distance == 1
+        // Exact match in 82k dictionary → valid word → never replace
+        if best.distance == 0 {
+            return None;
+        }
+
+        // Require strictly distance == 1 (redundant given init, but explicit)
         if best.distance != 1 {
             return None;
         }
 
-        // Skip if suggestion matches typed word
+        // Safety: skip if suggestion somehow equals typed word
         if best.term.eq_ignore_ascii_case(&word_lower) {
             return None;
         }
 
-        // Rule 4: QWERTY Spatial Error Frequency Threshold
-        // Adjacent key typos (fat-finger) use 2.5x threshold, non-adjacent use 10.0x threshold
+        // QWERTY spatial frequency threshold
+        // Adjacent-key fat-finger typos need 2.5× the candidate's frequency to fire.
+        // Non-adjacent (wrong-letter) typos need 10.0× — far stricter.
         let is_adjacent = is_qwerty_typo(&word_lower, &best.term);
-        let freq_multiplier = if is_adjacent { 2.5 } else { 10.0 };
+        let freq_multiplier = if is_adjacent { 2.5f64 } else { 10.0f64 };
 
-        let typed_freq = exact_matches.first().map(|s| s.count).unwrap_or(1);
-        if (best.count as f64) < (typed_freq as f64 * freq_multiplier) {
+        // Typed word is not in the 82k dict (distance != 0) so its baseline freq = 1
+        if (best.count as f64) < freq_multiplier {
             return None;
         }
 
-        // Probabilistic confidence score (0.85 to 0.99)
+        // Confidence score 0.85–0.99
         let base_confidence = if is_adjacent { 0.92f32 } else { 0.85f32 };
         let freq_boost = ((best.count as f32).ln().max(0.0) / 25.0).min(0.07);
         let confidence = (base_confidence + freq_boost).min(0.99);

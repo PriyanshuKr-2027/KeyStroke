@@ -127,7 +127,13 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           body="Type anywhere in your daily apps — typos fix automatically, and next-word suggestions appear directly beside your cursor."
           chips={[{ label: "Smart Autocorrect" }, { label: "Predictive Typing" }]}
           ctaLabel="Test sandbox"
-          onCtaClick={() => {}}
+          onCtaClick={() => {
+            const el = document.getElementById("sandbox-textarea");
+            if (el) {
+              el.focus();
+              el.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
+          }}
           onDismiss={() => setShowCallout(false)}
         />
       )}
@@ -140,20 +146,13 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           {statCards.map((card, i) => (
             <div
               key={i}
-              className="bg-[var(--surface)] border border-[var(--border)] p-4 rounded-[12px] shadow-sm flex flex-col justify-between h-[104px] relative overflow-hidden transition-colors"
+              className="bg-[var(--surface)] border border-[var(--border)] p-4 rounded-[12px] shadow-sm flex flex-col justify-between transition-colors"
             >
               <div>
                 <span className="text-[12px] font-medium text-[var(--text-secondary)]">{card.label}</span>
-                <p className="text-[24px] font-semibold text-[var(--text-primary)] tracking-tight mt-0.5">
+                <p className="text-[24px] font-semibold text-[var(--text-primary)] tracking-tight mt-1">
                   {card.value}
                 </p>
-              </div>
-
-              {/* Sparkline SVG */}
-              <div className="absolute right-3 bottom-3 opacity-80">
-                <svg width="90" height="24" viewBox="0 0 90 24" fill="none">
-                  <path d={card.sparkline} stroke={card.color} strokeWidth="2" strokeLinecap="round" />
-                </svg>
               </div>
             </div>
           ))}
@@ -170,6 +169,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
         </div>
 
         <textarea
+          id="sandbox-textarea"
           rows={2}
           value={sandboxText}
           onChange={(e) => setSandboxText(e.target.value)}

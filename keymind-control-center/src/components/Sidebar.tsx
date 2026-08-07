@@ -126,24 +126,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Bottom Pinned Actions */}
       <div className="px-3 pb-4 space-y-1">
-        {/* Quick Theme Switcher Button in Sidebar */}
-        {onToggleTheme && (
-          <button
-            onClick={onToggleTheme}
-            className={`w-full h-[36px] px-3 rounded-[8px] text-[12px] font-medium flex items-center justify-between transition cursor-pointer mb-1 border ${
-              isDark
-                ? "bg-[#282522] border-[#383430] text-[#ECE9E3] hover:bg-[#33302B]"
-                : "bg-white border-[#E8E4DC] text-[#1E1E1E] hover:bg-[#F3EFEA]"
-            }`}
-          >
-            <span className="flex items-center gap-2">
-              {isDark ? <Moon className="w-3.5 h-3.5 text-[#E07A5F]" /> : <Sun className="w-3.5 h-3.5 text-[#DA7756]" />}
-              <span>{isDark ? "Claude Dark" : "Claude Light"}</span>
-            </span>
-            <span className="text-[10px] font-mono opacity-60 uppercase">Switch</span>
-          </button>
-        )}
-
         <div className={`my-2 border-t ${isDark ? "border-[#383430]" : "border-[#E8E4DC]"}`} />
 
         <button

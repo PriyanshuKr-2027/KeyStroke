@@ -1,76 +1,66 @@
-# KeyMind — Feature Specification & Functional Breakdown
+# KeyStroke — Complete Features & Capabilities Guide
 
-## 1. Complete Feature Matrix
-
-| Feature ID | Feature Name | Core Functionality | Status | Subsystem |
-| :--- | :--- | :--- | :--- | :--- |
-| **FEAT-01** | Low-Level Key Interception | System-wide unbuffered keyboard hook across Windows & macOS with event-handler lifecycle channel connection | ✅ Verified | `keymind-interceptor-windows` |
-| **FEAT-02** | SymSpell Autocorrect | Fast edit distance typo correction against 82k English words | ✅ Verified | `keymind-autocorrect` |
-| **FEAT-03** | Homophone Context Swaps | Automatic resolution of `their`/`there`/`they're`, `then`/`than` | ✅ Verified | `keymind-autocorrect` |
-| **FEAT-04** | Trigram Next-Word Prediction | Predicts next word based on 2-word typing context | ✅ Verified | `keymind-prediction` |
-| **FEAT-05** | Floating Gboard Suggestion Chip | Overlay displaying predicted word with <kbd>Tab ↹</kbd> acceptance | ✅ Verified | `keymind-control-center` |
-| **FEAT-06** | LanguageTool Grammar Engine | Real-time right-to-left auto-fixes for subject-verb & typos | ✅ Verified | `keymind-grammar` |
-| **FEAT-07** | In-Line Variable Expansions | Slash command expansion (`/email`, `/date`, `/reply`) | ✅ Verified | `keymind-variables` |
-| **FEAT-08** | Custom Whitelist Dictionary | Personal dictionary ignoring technical jargon & acronyms | ✅ Verified | `keymind-learning` |
-| **FEAT-09** | Learned Frequent Phrases | Auto-learns multi-word phrases ranked by frequency | ✅ Verified | `keymind-learning` |
-| **FEAT-10** | Per-App Exclusion Rules | Enable/disable features per application bundle ID | ✅ Verified | `keymind-control-center` |
-| **FEAT-11** | Global Keybinding Capture | Custom shortcuts mapping all 6 global hotkeys (`Ctrl+Alt+Space`, `Ctrl+Alt+G`, `Ctrl+Alt+P`, etc.) with live recorder | ✅ Verified | `keymind-control-center` |
-| **FEAT-12** | Dual AI Copilot Failover | Groq Llama 3.3 70B with automatic Cerebras Llama 3.1 8B failover | ✅ Verified | `keymind-sync-server` |
-| **FEAT-13** | First-Run Onboarding Wizard | 3-step setup wizard with permission detection, `open_accessibility_settings` integration, auto-advance, AI keys, & presets | ✅ Verified | `keymind-control-center` |
-| **FEAT-14** | Interactive Engine Sandbox | Home & Grammar tab live input bar for instant testing | ✅ Verified | `keymind-control-center` |
-| **FEAT-15** | Glassmorphic Desktop Dashboard | Claude Terracotta obsidian UI built with Tauri + React | ✅ Verified | `keymind-control-center` |
+KeyStroke is a system-wide AI typing intelligence suite designed for frictionless, zero-latency text enhancement across all desktop applications.
 
 ---
 
-## 2. Feature Deep-Dives
+## 1. Smart Autocorrect Engine
 
-### FEAT-01: System-Wide Low-Level Key Interception
-* **Description**: Captures keypress events across native OS windows before they reach target text fields, enabling instant replacement without input flicker.
-* **Input**: Native OS keypress hardware interrupt (`WH_KEYBOARD_LL` on Windows, `CGEventTap` on macOS).
-* **Output**: Modified keypress stream or expanded buffer injection via connected event handler channel loop.
-* **Verification**: `cargo run --example interactive_test` execution and thread-safe lifecycle channel validation.
+### Zero False Positive Multi-Layered Pipeline
+* **Layer 0 (Google-10k Whitelist)**: Contains 4,758 of the most frequent English words. Words like `issue`, `grammar`, `this`, `from`, `with`, `there` are protected by an instant $O(1)$ hash set check and are **never** wrongly corrected.
+* **Layer 1 (Short Word Protection)**: Words $\le 3$ characters (e.g. `is`, `in`, `at`, `the`, `ok`) pass through untouched.
+* **Layer 2 (SymSpell Distance 1 Gate)**: Edit distance is strictly capped at 1. Sub-millisecond lookup against an 82,000-word frequency dictionary.
+* **QWERTY Spatial Error Model**:
+  * **Adjacent Key Typos (Fat-Finger)**: Requires $2.5\times$ candidate frequency threshold.
+  * **Non-Adjacent Key Typos**: Requires $10.0\times$ candidate frequency threshold.
 
-### FEAT-02 & FEAT-03: SymSpell Autocorrect & Homophones
-* **Description**: Corrects transposed characters (e.g. `teh` $\rightarrow$ `the`, `recieve` $\rightarrow$ `receive`) and contextual homophones (e.g. `going over their` $\rightarrow$ `there`).
-* **Algorithm**: SymSpell lookup using Delete Edit Distance algorithm with `max_edit_distance = 2`.
-* **Dictionary Hygiene**: Typo entries removed from valid vocabulary dictionary text files so SymSpell lookup returns valid target terms.
+### Session Rejection Memory
+If KeyStroke auto-corrects a word (e.g. `teh` $\rightarrow$ `the`) and you backspace to retype your original word, KeyStroke remembers your choice. The original word is added to a session override memory, ensuring KeyStroke will **never auto-correct that word again** during your session.
 
-### FEAT-04 & FEAT-05: Next-Word Prediction & Gboard Floating Chip
-* **Description**: Computes next-word probabilities based on typing context. When confidence exceeds threshold (e.g. > 80%), a floating prediction chip appears near the cursor.
-* **Interaction**: Pressing <kbd>Tab ↹</kbd> accepts the candidate word and appends a trailing space. Pressing <kbd>Esc</kbd> dismisses the chip.
+---
 
-### FEAT-06: LanguageTool Grammar Engine & Right-to-Left Fixer
-* **Description**: Evaluates full sentence context for subject-verb agreement (`He are going` $\rightarrow$ `He is going`), typos (`teh` $\rightarrow$ `the`), homophones (`there books` $\rightarrow$ `their books`), and plural verbs (`books was` $\rightarrow$ `were`).
-* **Right-to-Left Execution**:
-  ```text
-  Input Sentence: "He are going to teh store because there books was lost."
-  1. Fix Offset 46: "was"   -> "were"  ("He are going to teh store because there books were lost.")
-  2. Fix Offset 34: "there" -> "their" ("He are going to teh store because their books were lost.")
-  3. Fix Offset 16: "teh"   -> "the"   ("He are going to the store because their books were lost.")
-  4. Fix Offset 3:  "are"   -> "is"    ("He is going to the store because their books were lost.")
-  ```
+## 2. Text Shortcuts & Variables (`/` Prefix)
 
-### FEAT-07: In-Line Variable & Snippet Expansion
-* **Description**: Monitors keypress buffer for slash triggers (`/key`). Upon typing `Space` after a valid trigger key, replaces the trigger with resolved value:
-  * `/phone` $\rightarrow$ `+1-555-0199`
-  * `/date` $\rightarrow$ `August 5, 2026`
-  * `/leave` $\rightarrow$ `Dear Manager, Please accept my formal leave application...`
+* **Slash Command Triggers**: Variables are triggered strictly by typing `/` followed by the variable key (e.g. `/email`, `/date`, `/address`, `/zoom`).
+* **Multi-Placeholder Expansion**:
+  * `{date}`: Expands to current date (e.g. `August 07, 2026`).
+  * `{time}`: Expands to current local time (e.g. `10:45:00`).
+  * `{clipboard}`: Pastes current system clipboard contents directly.
+* **Automatic Buffer Reset**: Executes `clear_word_buffer()` immediately after expansion so typing resumes cleanly.
 
-### FEAT-11: Global Keybinding Capture & Live Recorder
-* **Description**: System-wide global hotkeys for instant actions. Maps 6 global hotkeys (`Ctrl+Alt+Space` for Autocorrect, `Ctrl+Alt+G` for Grammar, `Ctrl+Alt+P` for Prediction, `Ctrl+Alt+M` for Menu, `Ctrl+Alt+S` for Snippet, `Ctrl+Alt+W` for Window focus).
-* **Live Recorder**: Clicking a shortcut row in the Shortcuts tab activates a live `keydown` event listener. Pressing any combination (e.g. `Ctrl+Alt+M`) updates the binding immediately with <kbd>Esc</kbd> cancellation.
+---
 
-### FEAT-12: Dual AI Copilot Failover Architecture
-* **Primary**: Groq API (`llama-3.3-70b-versatile`).
-* **Failover**: Cerebras API (`llama3.1-8b`).
-* **Behavior**: If Groq returns rate limit error HTTP 429 or connection timeout, KeyMind automatically routes the prompt to Cerebras in < 50ms without user interruption.
+## 3. Global AI Shortcuts & Automated Actions
 
-### FEAT-13: First-Run Onboarding Wizard & Permission Detection
-* **Description**: 3-step onboarding flow guiding users through system setup.
-* **Permission Detection**: Integrates `open_accessibility_settings` command allowing users to open OS accessibility preferences directly from the wizard, paired with an auto-advance / continue mechanism to proceed seamlessly.
+System-wide global hotkeys that work across any desktop text editor:
 
-### FEAT-16: Dual Packaging & Portable Release Distribution
-* **Installer Bundle**: `KeyStroke_Installer_v0.1.0.exe` with bundled WebView2 bootstrapper and auto-start system service.
-* **Portable Edition**: `KeyStroke_v0.1.0_Portable_x64.zip` for standalone, zero-installation execution across any Windows x64 machine.
+| Hotkey | Action | Description |
+| :--- | :--- | :--- |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>Space</kbd> | **Copilot Palette** | Opens floating AI prompt window near your active cursor |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>G</kbd> | **Grammar Fix** | Copies highlighted text, fixes grammar errors, and pastes result back |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>P</kbd> | **Professional Rewrite** | Copies selection, rewrites in formal business tone via AI, and pastes back |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>S</kbd> | **Summarize** | Copies selection, summarizes key points via AI, and pastes back |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>X</kbd> | **AI Expand** | Copies selection, expands prompt with details via AI, and pastes back |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>K</kbd> | **Toggle Interceptor** | Pauses or resumes global keyboard interception system-wide |
 
+---
 
+## 4. Real-Time Interceptor Pause Control
+
+* **Sidebar ON/OFF Toggle Switch**: Header badge in sidebar allows 1-click pause/resume of the background keyboard hook.
+* **Zero Overhead when OFF**: When paused, the low-level hook (`WH_KEYBOARD_LL`) returns immediately without recording keystrokes or processing buffers.
+
+---
+
+## 5. Claude Light & Dark Design System
+
+* **Claude Light Theme**: Natural paper tint (`#FAF8F5`), clean white card containers (`#FFFFFF`), warm subtle borders (`#E8E4DC`), dark primary text (`#1E1E1E`), terracotta branding accent (`#DA7756`).
+* **Claude Dark Theme**: Deep charcoal tint (`#1B1917`), dark card containers (`#22201D`), dark borders (`#383430`), light primary text (`#ECE9E3`), terracotta branding accent (`#DA7756`).
+* **Instant Toggle**: Toggle between light and dark themes from the top window drag region or sidebar button.
+
+---
+
+## 6. Windows Enterprise Deployment & UIPI Bypass
+
+* **Elevated Window Functionality (UIPI Bypass)**: Built with `keystroke.manifest` featuring `uiAccess="true"` and installed in `C:\Program Files\KeyStroke\`. Works seamlessly inside Administrator Command Prompts, Task Manager, and elevated IDEs.
+* **SignPath Code Signing**: Integrated with SignPath Foundation OV certificate signing in GitHub Actions CI/CD workflow (`release.yml`).

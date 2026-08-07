@@ -1,19 +1,25 @@
 import React, { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
 import { SettingsRowGroup } from "./SettingsRowGroup";
-import { X, Check } from "lucide-react";
+import { X, Sun, Moon, Monitor } from "lucide-react";
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onNavigateTab?: (tab: string) => void;
+  theme?: "light" | "dark" | "system";
+  onSelectTheme?: (theme: "light" | "dark" | "system") => void;
 }
 
 export const SettingsTab: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
+  onNavigateTab,
+  theme = "system",
+  onSelectTheme,
 }) => {
   const [activeSection, setActiveSection] = useState<
-    "general" | "system" | "ai" | "account" | "billing" | "privacy"
+    "general" | "system" | "ai" | "account" | "privacy"
   >("general");
 
   // State values
@@ -21,7 +27,6 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
   const [minimizeTray, setMinimizeTray] = useState(true);
   const [showTaskbar, setShowTaskbar] = useState(true);
   const [soundFeedback, setSoundFeedback] = useState(false);
-  const [soundPrediction, setSoundPrediction] = useState(false);
   const [groqKey, setGroqKey] = useState("");
   const [cerebrasKey, setCerebrasKey] = useState("");
   const [groqValid, setGroqValid] = useState(false);
@@ -31,6 +36,7 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
+  const [dob, setDob] = useState("");
 
   useEffect(() => {
     if (isOpen) {
@@ -71,7 +77,7 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center p-4 z-50 animate-fade-in select-none">
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4 z-50 animate-fade-in select-none">
       <div className="w-[860px] h-[560px] bg-[#FFFFFF] rounded-[16px] shadow-2xl border border-[#EBEBEB] flex overflow-hidden relative">
         {/* Close Button */}
         <button
@@ -91,8 +97,8 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
             {/* General Section */}
             <div className="space-y-1">
               {[
-                { id: "general", label: "General" },
-                { id: "system", label: "System" },
+                { id: "general", label: "General & Appearance" },
+                { id: "system", label: "System Preferences" },
                 { id: "ai", label: "AI & Copilot" },
               ].map((item) => {
                 const isActive = activeSection === item.id;
@@ -102,7 +108,7 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
                     onClick={() => setActiveSection(item.id as any)}
                     className={`w-full h-[36px] px-3 rounded-[6px] text-[13px] font-normal text-left transition cursor-pointer ${
                       isActive
-                        ? "bg-[#F0F0F0] text-[#111111]"
+                        ? "bg-[#F0F0F0] text-[#111111] font-medium"
                         : "text-[#6B6B6B] hover:bg-[#F5F5F5] hover:text-[#111111]"
                     }`}
                   >
@@ -115,11 +121,10 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
             {/* Account Section */}
             <div className="space-y-1">
               <div className="text-[11px] font-semibold text-[#AAAAAA] px-2 uppercase tracking-wider mb-2">
-                ACCOUNT
+                USER & DATA
               </div>
               {[
-                { id: "account", label: "Account" },
-                { id: "billing", label: "Plans & Billing" },
+                { id: "account", label: "Account Profile" },
                 { id: "privacy", label: "Data & Privacy" },
               ].map((item) => {
                 const isActive = activeSection === item.id;
@@ -129,7 +134,7 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
                     onClick={() => setActiveSection(item.id as any)}
                     className={`w-full h-[36px] px-3 rounded-[6px] text-[13px] font-normal text-left transition cursor-pointer ${
                       isActive
-                        ? "bg-[#F0F0F0] text-[#111111]"
+                        ? "bg-[#F0F0F0] text-[#111111] font-medium"
                         : "text-[#6B6B6B] hover:bg-[#F5F5F5] hover:text-[#111111]"
                     }`}
                   >
@@ -141,7 +146,7 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
           </div>
 
           <div className="px-2 text-[11px] text-[#AAAAAA] font-mono">
-            v1.0.0 — Wispr Flow
+            KeyStroke Desktop v0.1.0
           </div>
         </div>
 
@@ -150,8 +155,40 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
           {activeSection === "general" && (
             <div className="space-y-5">
               <h2 className="font-sans text-[18px] font-semibold text-[#111111]">
-                General Settings
+                General & Appearance
               </h2>
+
+              {/* Theme / Appearance Selection Box */}
+              <div className="space-y-2">
+                <label className="block text-[13px] font-medium text-[#111111]">
+                  Interface Theme
+                </label>
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { id: "light", label: "Light", icon: Sun },
+                    { id: "dark", label: "Dark", icon: Moon },
+                    { id: "system", label: "System Default", icon: Monitor },
+                  ].map((t) => {
+                    const Icon = t.icon;
+                    const isSelected = theme === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        onClick={() => onSelectTheme && onSelectTheme(t.id as any)}
+                        className={`h-[42px] px-3 rounded-[8px] border flex items-center justify-center gap-2 text-[13px] font-medium transition cursor-pointer ${
+                          isSelected
+                            ? "bg-[#111111] text-white border-[#111111] shadow-sm"
+                            : "bg-[#F5F5F5] text-[#6B6B6B] border-[#EBEBEB] hover:bg-[#EBEBEB] hover:text-[#111111]"
+                        }`}
+                      >
+                        <Icon className="w-4 h-4" />
+                        <span>{t.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               <SettingsRowGroup
                 items={[
                   {
@@ -160,13 +197,10 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
                     subtitle: "Customize global system hotkeys",
                     type: "button",
                     buttonLabel: "Change",
-                  },
-                  {
-                    id: "language",
-                    label: "Primary language",
-                    subtitle: "English (US)",
-                    type: "button",
-                    buttonLabel: "Change",
+                    onButtonClick: () => {
+                      onClose();
+                      if (onNavigateTab) onNavigateTab("shortcuts");
+                    },
                   },
                   {
                     id: "sound",
@@ -219,17 +253,6 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
                     onToggle: (v) => {
                       setShowTaskbar(v);
                       invoke("update_system_setting", { key: "show_taskbar", value: v }).catch(console.error);
-                    },
-                  },
-                  {
-                    id: "sound_pred",
-                    label: "Prediction chip sound",
-                    subtitle: "Audible click when suggestion appears",
-                    type: "toggle",
-                    checked: soundPrediction,
-                    onToggle: (v) => {
-                      setSoundPrediction(v);
-                      invoke("update_system_setting", { key: "sound_prediction", value: v }).catch(console.error);
                     },
                   },
                 ]}
@@ -300,18 +323,6 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
                     className="w-full bg-[#F5F5F5] border border-[#EBEBEB] rounded-[8px] px-3.5 py-2 text-[13px] font-mono text-[#111111] focus:outline-none"
                   />
                 </div>
-
-                <SettingsRowGroup
-                  items={[
-                    {
-                      id: "failover",
-                      label: "Failover behavior",
-                      subtitle: "Auto switch to Cerebras on 429/5xx API errors",
-                      type: "toggle",
-                      checked: true,
-                    },
-                  ]}
-                />
               </div>
             </div>
           )}
@@ -322,16 +333,6 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
                 Account & Profile
               </h2>
 
-              <div className="flex items-center gap-4 pb-2 border-b border-[#EBEBEB]">
-                <div className="w-14 h-14 rounded-full bg-[#F5F5F5] border border-[#EBEBEB] flex items-center justify-center font-bold text-[18px] text-[#111111]">
-                  AD
-                </div>
-                <div>
-                  <p className="text-[14px] font-medium text-[#111111]">{firstName} {lastName}</p>
-                  <p className="text-[13px] text-[#6B6B6B]">{email}</p>
-                </div>
-              </div>
-
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[13px] font-medium text-[#111111] mb-1">First Name</label>
@@ -339,6 +340,7 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
                     type="text"
                     value={firstName}
                     onChange={(e) => setFirstName(e.target.value)}
+                    placeholder="John"
                     className="w-full bg-[#F5F5F5] border border-[#EBEBEB] rounded-[8px] px-3 py-2 text-[14px] text-[#111111]"
                   />
                 </div>
@@ -348,6 +350,29 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
                     type="text"
                     value={lastName}
                     onChange={(e) => setLastName(e.target.value)}
+                    placeholder="Doe"
+                    className="w-full bg-[#F5F5F5] border border-[#EBEBEB] rounded-[8px] px-3 py-2 text-[14px] text-[#111111]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[13px] font-medium text-[#111111] mb-1">Email Address</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="john@example.com"
+                    className="w-full bg-[#F5F5F5] border border-[#EBEBEB] rounded-[8px] px-3 py-2 text-[14px] text-[#111111]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[13px] font-medium text-[#111111] mb-1">Date of Birth</label>
+                  <input
+                    type="date"
+                    value={dob}
+                    onChange={(e) => setDob(e.target.value)}
                     className="w-full bg-[#F5F5F5] border border-[#EBEBEB] rounded-[8px] px-3 py-2 text-[14px] text-[#111111]"
                   />
                 </div>
@@ -355,41 +380,22 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
 
               <div className="flex items-center justify-between pt-4 border-t border-[#EBEBEB]">
                 <button
-                  onClick={async () => { if (window.confirm("Are you sure you want to delete all data? This cannot be undone.")) { await invoke("purge_database"); } }}
+                  onClick={async () => { if (window.confirm("Are you sure you want to delete all local profile data?")) { await invoke("purge_database"); } }}
                   className="text-[#EF4444] text-[13px] font-medium cursor-pointer hover:underline"
                 >
-                  Delete account
+                  Delete account profile
                 </button>
                 <button
                   onClick={async () => {
                     try {
-                      await invoke("save_profile", { firstName, lastName, email });
+                      await invoke("save_profile", { firstName, lastName, email, dateOfBirth: dob || null });
                       onClose();
                     } catch (e) { console.error("Failed to save profile:", e); }
                   }}
-                  className="px-4 py-2 bg-[#111111] text-[#FFFFFF] text-[14px] font-medium rounded-[8px]"
+                  className="px-4 py-2 bg-[#111111] text-[#FFFFFF] text-[14px] font-medium rounded-[8px] cursor-pointer"
                 >
                   Save changes
                 </button>
-              </div>
-            </div>
-          )}
-
-          {activeSection === "billing" && (
-            <div className="space-y-5">
-              <h2 className="font-sans text-[18px] font-semibold text-[#111111]">
-                Plans & Billing
-              </h2>
-              <div className="p-4 bg-[#F5F5F5] rounded-[10px] space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-[14px] font-semibold text-[#111111]">KeyStroke Pro Plan</span>
-                  <span className="px-2.5 py-1 bg-[#111111] text-[#FFFFFF] text-[12px] font-medium rounded-[6px]">
-                    ACTIVE
-                  </span>
-                </div>
-                <p className="text-[13px] text-[#6B6B6B]">
-                  Unlimited local autocorrect, instant Groq AI prompts, and full team dictionary sync.
-                </p>
               </div>
             </div>
           )}
@@ -421,17 +427,17 @@ export const SettingsTab: React.FC<SettingsModalProps> = ({
                       console.error(e);
                     }
                   }}
-                  className="w-full h-[40px] px-4 bg-[#F5F5F5] text-[#111111] text-[14px] font-medium rounded-[8px] text-left hover:bg-[#EBEBEB]">
+                  className="w-full h-[40px] px-4 bg-[#F5F5F5] text-[#111111] text-[14px] font-medium rounded-[8px] text-left hover:bg-[#EBEBEB] cursor-pointer">
                   Export all local data
                 </button>
                 <button
                   onClick={async () => { if (window.confirm("Clear all activity history?")) { await invoke("clear_activity_history"); } }}
-                  className="w-full h-[40px] px-4 bg-[#F5F5F5] text-[#EF4444] text-[14px] font-medium rounded-[8px] text-left hover:bg-[#FEE2E2]">
+                  className="w-full h-[40px] px-4 bg-[#F5F5F5] text-[#EF4444] text-[14px] font-medium rounded-[8px] text-left hover:bg-[#FEE2E2] cursor-pointer">
                   Clear activity history
                 </button>
                 <button
                   onClick={async () => { if (window.confirm("Purge entire database? This will reset everything.")) { await invoke("purge_database"); } }}
-                  className="w-full h-[40px] px-4 bg-[#FEE2E2] text-[#EF4444] text-[14px] font-semibold rounded-[8px] text-left hover:bg-[#FCA5A5]">
+                  className="w-full h-[40px] px-4 bg-[#FEE2E2] text-[#EF4444] text-[14px] font-semibold rounded-[8px] text-left hover:bg-[#FCA5A5] cursor-pointer">
                   Purge database
                 </button>
               </div>

@@ -89,6 +89,8 @@ pub struct UserProfile {
     pub first_name: String,
     pub last_name: String,
     pub email: String,
+    #[serde(default)]
+    pub date_of_birth: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -201,15 +203,25 @@ fn save_store_async(store: StoreData) {
 
 pub struct AppState {
     pub store: Mutex<StoreData>,
+    /// Session-only rejection memory: words the user deliberately backspaced after
+    /// autocorrect fired. These will never be auto-corrected again for this session.
+    pub user_correction_overrides: Mutex<std::collections::HashSet<String>>,
 }
 
 #[tauri::command]
 fn get_engine_status() -> EngineStatus {
+    let running = keymind_interceptor_windows::is_interceptor_active();
     EngineStatus {
-        engine: "running".to_string(),
+        engine: if running { "running".to_string() } else { "stopped".to_string() },
         ai: "connected".to_string(),
         grammar: "ready".to_string(),
     }
+}
+
+#[tauri::command]
+fn toggle_engine_state(running: bool) -> EngineStatus {
+    keymind_interceptor_windows::set_interceptor_active(running);
+    get_engine_status()
 }
 
 #[tauri::command]
@@ -488,7 +500,7 @@ fn install_launch_agent() -> Result<(), String> {
                     "/t",
                     "REG_SZ",
                     "/d",
-                    &format!("\"{}\"", exe_str),
+                    &format!("\"{}\" --autostart", exe_str),
                     "/f",
                 ])
                 .status()
@@ -772,12 +784,13 @@ fn update_feature_toggle(feature: String, enabled: bool, state: tauri::State<App
 }
 
 #[tauri::command]
-fn save_profile(first_name: String, last_name: String, email: String, state: tauri::State<AppState>) -> Result<(), String> {
+fn save_profile(first_name: String, last_name: String, email: String, date_of_birth: Option<String>, state: tauri::State<AppState>) -> Result<(), String> {
     let mut store = state.store.lock().unwrap_or_else(|e| e.into_inner());
     store.profile = UserProfile {
         first_name,
         last_name,
         email,
+        date_of_birth: date_of_birth.unwrap_or_default(),
     };
     save_store(&store);
     Ok(())
@@ -826,6 +839,14 @@ fn main() {
 
     tauri::Builder::default()
         .setup(|app| {
+            let is_autostart = std::env::args().any(|a| a == "--autostart" || a == "--minimized");
+            if is_autostart {
+                use tauri::Manager;
+                if let Some(window) = app.get_window("main") {
+                    let _ = window.hide();
+                }
+            }
+
             #[cfg(target_os = "windows")]
             {
                 // Spawn background memory trimmer to return unused committed pages to Windows OS every 30s
@@ -849,7 +870,7 @@ fn main() {
                     while let Some(event) = rx.recv().await {
                         match event {
                             keymind_interceptor_windows::Event::PaletteRequested => {
-                                let _ = open_palette_window(app_handle.clone());
+                                let _ = open_palette_window(app_handle.clone()).await;
                             }
                             keymind_interceptor_windows::Event::HotKeyTriggered(id) => {
                                 let shortcut_name = match id {
@@ -862,7 +883,7 @@ fn main() {
                                     _ => "",
                                 };
                                 if shortcut_name == "copilot_palette" {
-                                    let _ = open_palette_window(app_handle.clone());
+                                    let _ = open_palette_window(app_handle.clone()).await;
                                 } else if !shortcut_name.is_empty() {
                                     let _ = handle_shortcut_trigger(shortcut_name.to_string()).await;
                                 }
@@ -879,15 +900,35 @@ fn main() {
                                     return;
                                 }
 
-                                // 2. Check custom variables and feature toggles
+                                // 2. Check custom variables (Enforcing '/' prefix for variable expansion)
                                 let (replacement, autocorrect_enabled, prediction_enabled, grammar_enabled) = {
                                     let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
+                                    
+                                    let rep = if word.starts_with('/') {
+                                        let clean_key = &word[1..]; // e.g. "email" from "/email"
+                                        store.variables.iter().find(|v| {
+                                            v.key.eq_ignore_ascii_case(&word)
+                                                || v.key.eq_ignore_ascii_case(clean_key)
+                                                || format!("/{}", v.key).eq_ignore_ascii_case(&word)
+                                        }).and_then(|v| v.value.clone())
+                                    } else {
+                                        None
+                                    };
+
                                     (
-                                        store.variables.iter().find(|v| v.key.eq_ignore_ascii_case(&word)).and_then(|v| v.value.clone()),
+                                        rep,
                                         store.toggles.autocorrect_enabled,
                                         store.toggles.prediction_enabled,
                                         store.toggles.grammar_enabled,
                                     )
+                                };
+
+                                // 2b. Rejection memory guard — user previously backspaced
+                                // a correction for this exact word, so respect their choice
+                                // and skip autocorrect entirely for this word this session.
+                                let is_user_rejected = {
+                                    let overrides = state.user_correction_overrides.lock().unwrap_or_else(|e| e.into_inner());
+                                    overrides.contains(&word.to_lowercase())
                                 };
 
                                 if let Some(rep) = replacement {
@@ -907,6 +948,10 @@ fn main() {
                                         expanded = expanded.replace("{clipboard}", &clip_text);
                                     }
                                     injector.inject_text(&expanded);
+                                    // Bug 3 fix: Clear buffer so next word starts fresh.
+                                    // Without this, backspace+retype after a variable
+                                    // expansion would not re-trigger the substitution.
+                                    keymind_interceptor_windows::clear_word_buffer();
                                     let mut store = state.store.lock().unwrap_or_else(|e| e.into_inner());
                                     store.daily_stats.variables_used += 1;
                                     save_store_async(store.clone());
@@ -914,7 +959,8 @@ fn main() {
                                     let mut corrected_typo = false;
 
                                     // 3. Multi-layered SymSpell + Bigram Context Re-ranking
-                                    if autocorrect_enabled {
+                                    // Skip if user previously rejected a correction for this exact word.
+                                    if autocorrect_enabled && !is_user_rejected {
                                         let sym = get_symspell();
                                         let bigram = get_bigram_model();
                                         if let Some((suggested, base_conf)) = sym.check(&word) {
@@ -931,6 +977,17 @@ fn main() {
                                                 let injector = keymind_interceptor_windows::TextInjector::new();
                                                 injector.send_backspaces(word.len());
                                                 injector.inject_text(&suggested);
+                                                // Bug 3 fix: Clear buffer so fresh typing after this
+                                                // correction is treated as a new word.
+                                                keymind_interceptor_windows::clear_word_buffer();
+
+                                                // Rejection memory: record this word so if the user
+                                                // backspaces the correction and retypes it, we leave
+                                                // it alone — they clearly don't want it changed.
+                                                {
+                                                    let mut overrides = state.user_correction_overrides.lock().unwrap_or_else(|e| e.into_inner());
+                                                    overrides.insert(word.to_lowercase());
+                                                }
 
                                                 let mut store = state.store.lock().unwrap_or_else(|e| e.into_inner());
                                                 store.daily_stats.corrections_made += 1;
@@ -961,13 +1018,26 @@ fn main() {
                                     }
 
                                     // 5. Live Sentence Grammar Assistant (nlprule)
-                                    if !corrected_typo && grammar_enabled && (context.contains('.') || context.contains('!') || context.contains('?')) {
+                                    // Bug 2 fix: Only run grammar engine on a REAL sentence context.
+                                    // The WORD_BUFFER sends `word` as both word AND context, meaning
+                                    // context == the single typed word. Running nlprule on a single
+                                    // word produces garbage ("grammar" -> "gamer").
+                                    // Gate: require >= 4 whitespace-delimited words AND sentence-ending
+                                    // punctuation before invoking the grammar engine.
+                                    let context_word_count = context.split_whitespace().count();
+                                    if !corrected_typo
+                                        && grammar_enabled
+                                        && context_word_count >= 4
+                                        && (context.ends_with('.') || context.ends_with('!') || context.ends_with('?'))
+                                    {
                                         let engine = get_grammar_engine();
                                         let fixed_sentence = engine.fix_text(&context).await;
                                         if !fixed_sentence.is_empty() && fixed_sentence != context {
                                             let injector = keymind_interceptor_windows::TextInjector::new();
                                             injector.send_backspaces(context.len());
                                             injector.inject_text(&fixed_sentence);
+                                            // Bug 3 fix: Clear buffer after grammar injection
+                                            keymind_interceptor_windows::clear_word_buffer();
 
                                             let mut store = state.store.lock().unwrap_or_else(|e| e.into_inner());
                                             store.daily_stats.corrections_made += 1;
@@ -993,10 +1063,12 @@ fn main() {
         })
         .manage(AppState {
             store: Mutex::new(store_data),
+            user_correction_overrides: Mutex::new(std::collections::HashSet::new()),
         })
         .manage(ShortcutManager::new())
         .invoke_handler(tauri::generate_handler![
             get_engine_status,
+            toggle_engine_state,
             get_stats,
             get_variables,
             upsert_variable,

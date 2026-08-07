@@ -1,26 +1,27 @@
-# KeyMind — Product Requirements Document (PRD)
+# KeyStroke — Product Requirements Document (PRD)
 
 ## 1. Product Overview & Vision
 
-**KeyMind** is a system-wide, AI-powered desktop typing intelligence suite for Windows and macOS. Operating quietly in the background via low-level keyboard interception, KeyMind provides real-time autocorrect, sub-1ms next-word prediction, multi-layered grammar checking, custom snippet expansions, and dual-provider AI copilot assistance across all native applications (VS Code, Slack, Word, Browsers, Terminals).
+**KeyStroke** is a system-wide, AI-powered desktop typing intelligence suite for Windows and macOS. Operating quietly in the background via low-level keyboard interception (`WH_KEYBOARD_LL` on Windows, `CGEventTap` on macOS), KeyStroke provides real-time autocorrect, sub-1ms next-word prediction, multi-layered sentence grammar checking, custom snippet expansions, and dual-provider AI copilot assistance across all native desktop applications (VS Code, Slack, Word, Browsers, Terminals).
 
 ### Core Vision Statement
-> "To transform system-wide text entry into a frictionless, intelligent experience where every keypress is instantly enhanced, corrected, and expanded with zero latency and 100% data privacy."
+> "To transform system-wide text entry into a frictionless, intelligent experience where every keypress is instantly enhanced, corrected, and expanded with zero latency, zero false positives, and 100% data privacy."
 
 ---
 
 ## 2. Problem Statement & Target Audience
 
 ### The Problem
-1. **Typing Friction & Errors**: Users waste significant time fixing typos, grammar mistakes, and homophone confusions across different desktop applications.
-2. **Context Switching**: Users switch back and forth between their active text editor and browser-based AI or grammar tools to rewrite text.
-3. **Repetitive Text Entry**: Frequently typed text (emails, dates, code templates, addresses) requires manual copy-pasting.
-4. **Privacy Concerns**: Cloud-first keyloggers and typing assistants risk exposing sensitive passwords, personal data, and corporate intellectual property.
+1. **Typing Friction & Aggressive Autocorrect**: Legacy spellcheckers mangle valid English words, force bad corrections on specialized vocabulary, and re-correct mistakes even after the user backspaces and retypes.
+2. **Context Switching**: Users interrupt their focus to copy-paste text into browser-based AI or grammar tools for rewriting.
+3. **Repetitive Text Entry**: Frequently typed snippets (emails, dates, code templates, clipboard contents) require manual copying.
+4. **Elevated Window Blocks (UIPI)**: Unsigned keyboard utilities fail to function inside elevated windows (Administrator terminals, Task Manager).
+5. **Memory Bloat**: Electron and Chromium-based typing tools consume hundreds of megabytes of system RAM.
 
 ### Target Personas
-* **Software Engineers & Technical Power Users**: Require fast snippet expansion (`/trigger`), custom technical jargon whitelisting, and zero input delay in IDEs.
-* **Executives & Managers**: Require formal business tone rewrites, rapid email drafting, and real-time grammar checks in Slack, Outlook, and Teams.
-* **Content Writers & Editors**: Require homophone resolution (`their` vs `there`), vocabulary phrase memory, and non-intrusive suggestion tooltips.
+* **Software Engineers & Technical Power Users**: Require fast slash-command text expansion (`/email`, `/date`), custom technical jargon whitelisting, and zero input delay in IDEs.
+* **Executives & Managers**: Require formal business tone rewrites (`Ctrl+Alt+P`), rapid selection summarization (`Ctrl+Alt+S`), and real-time grammar checks in Slack, Outlook, and Teams.
+* **Content Writers & Editors**: Require homophone resolution (`their` vs `there`), dictionary memory, and non-intrusive prediction chip tooltips.
 
 ---
 
@@ -28,74 +29,65 @@
 
 | Goal | Success Metric (KPI) | Target SLA |
 | :--- | :--- | :--- |
-| **Typo Elimination** | Automatic correction accuracy | > 98% accuracy on top 82k English words |
-| **Typing Velocity Boost** | Words-per-minute improvement | +25% increase via next-word prediction & snippets |
+| **Typo Elimination** | Autocorrect accuracy (Zero False Positives) | > 99.5% accuracy via Google-10k Layer 0 whitelist & distance=1 limit |
+| **User Intent Respect** | Rejection memory | 100% suppression of rejected corrections upon user backspace + retype |
+| **Typing Velocity Boost** | Words-per-minute improvement | +30% increase via next-word prediction & `/` snippet expansions |
 | **System Performance** | Keypress interception latency | P99 < 1ms delay per key event |
-| **Grammar Engine Quality** | Correct right-to-left text fixes | Zero character offset corruption during multi-fix passes |
+| **UIPI Bypass** | Elevated window compatibility | Full function in admin windows via `uiAccess=true` & Program Files installation |
 | **AI Availability** | Copilot response availability | 99.9% uptime via Groq $\rightarrow$ Cerebras dual failover |
-| **Memory Footprint** | System RAM utilization | < 80 MB total RAM across background daemon and UI |
+| **Memory Footprint** | System RAM utilization | < 50 MB total RAM via WebView2 OS working set trimming |
 
 ---
 
-## 4. User Personas & Detailed Use Cases
+## 4. Functional Requirements Summary
 
-### Persona A: Alex (Senior Software Engineer)
-* **Goal**: Expand boilerplate code and dates without leaving VS Code or Terminal.
-* **Flow**: Types `/date` followed by `Space`. KeyMind instantly intercepts the trigger and expands it into `August 5, 2026`.
-* **Value**: Zero interruption to engineering flow; custom technical jargon (e.g. `SymSpell`, `SQLite`) is never flagged as typos.
-
-### Persona B: Sarah (Product Manager)
-* **Goal**: Write grammatically flawless project updates in Slack and Notion.
-* **Flow**: Types *"He are going to teh store because there books was lost."* KeyMind evaluates the sentence in real-time and updates it to *"He is going to the store because their books were lost."*
-* **Value**: Professional communication without manual proofreading.
-
----
-
-## 5. Functional Requirements Summary
-
-### Module 1: System-Wide Key Interceptor
+### Module 1: System-Wide Interceptor & Pause Control
 * Must capture low-level keyboard events across Windows (`WH_KEYBOARD_LL`) and macOS (`CGEventTap`).
-* Must route events through an unbuffered lifecycle channel connected directly to the core event handler loop.
-* Must support instant passthrough with sub-1ms overhead.
+* Must provide instant real-time ON/OFF pause control via sidebar toggle button and global hotkey (`Ctrl+Alt+K`).
+* Must set `IS_INJECTING` atomic flags with 25ms post-backspace delay to prevent synthetic SendInput events from double-buffering or doubling first letters (`iinitial`).
 
-### Module 2: SymSpell Autocorrect & Homophone Resolution
-* Must execute fast edit distance lookup (max distance: 2) against an 82,000-word frequency dictionary.
-* Must resolve context-dependent homophones (`their` vs `there` vs `they're`, `then` vs `than`).
+### Module 2: Multi-Layered Autocorrect & Rejection Memory
+* **Layer 0 (Google-10k Whitelist)**: Embedded `HashSet` of top 4,758 most frequent English words. Words in this list are never auto-corrected.
+* **Layer 1 (Short-Word Gate)**: Words $\le$ 3 characters pass through untouched.
+* **Layer 2 (SymSpell + QWERTY Spatial Error Model)**: Max dictionary edit distance set strictly to 1. Adjacent QWERTY typos require 2.5$\times$ frequency threshold; non-adjacent typos require 10.0$\times$.
+* **Rejection Memory**: Session `user_correction_overrides` set. If autocorrect replaces word $W$ and the user backspaces to retype $W$, autocorrect is permanently skipped for $W$ in that session.
 
 ### Module 3: Next-Word Prediction Engine
-* Must calculate trigram probabilities and transformer predictions for the current typing context.
+* Must calculate trigram probabilities and next-token candidate lists.
 * Must render a floating Gboard-style prediction chip accepting suggestions with <kbd>Tab ↹</kbd>.
 
 ### Module 4: Multi-Layered Grammar Engine
-* Must query LanguageTool server endpoints for subject-verb, punctuation, and style checks.
+* Must require $\ge$ 4 whitespace-delimited words and sentence-ending punctuation (`.`, `!`, `?`) before invoking `nlprule` grammar checks, preventing single-word mangling.
 * Must apply fixes in descending character offset order (right-to-left) to preserve text indexing.
 
-### Module 5: Snippets & Variable Expansion Engine
-* Must monitor for slash command triggers (`/trigger`).
-* Must expand static text, dynamic computed expressions (`/date`, `/time`), and AI prompt outputs (`/reply`).
+### Module 5: Text Shortcuts & Variable Expansion
+* Must trigger exclusively when typed words start with `/` (e.g. `/email`, `/date`, `/address`).
+* Must support multi-placeholder dynamic expansion (`{date}`, `{time}`, `{clipboard}`).
+* Must execute `clear_word_buffer()` immediately after injection to ensure the word buffer resets cleanly.
 
-### Module 6: Per-App Rules & Blacklist
-* Must detect the active application window bundle identifier (e.g. `com.microsoft.VSCode`).
-* Must allow users to toggle Autocorrect, Grammar, or AI Copilot on a per-app basis.
+### Module 6: Global Hotkeys & Automated Actions
+* Must support 6 global hotkeys:
+  * `Ctrl+Alt+Space`: Open AI Copilot Palette
+  * `Ctrl+Alt+G`: Grammar Fix Highlighted Selection
+  * `Ctrl+Alt+P`: Professional Rewrite Selection
+  * `Ctrl+Alt+S`: Summarize Selection
+  * `Ctrl+Alt+X`: Expand AI Prompt Selection
+  * `Ctrl+Alt+K`: Toggle Interceptor ON/OFF
+* Actions must automatically capture selected text via `Ctrl+C`, run the AI/Grammar pipeline, and paste the result back via `Ctrl+V`.
 
-### Module 7: Global Hotkeys & Shortcuts
-* Must register and map 6 system-wide global hotkeys (`Ctrl+Alt+Space` for Autocorrect toggle, `Ctrl+Alt+G` for Grammar, `Ctrl+Alt+P` for Prediction, `Ctrl+Alt+M` for Menu, `Ctrl+Alt+S` for Snippet, `Ctrl+Alt+W` for Window focus).
-* Must feature interactive keypress recording in the Control Center UI with instant shortcut updates.
+### Module 7: Claude Light & Dark UI Theme System
+* Must provide dual curated themes: **Claude Light** (`#FAF8F5` paper background) and **Claude Dark** (`#1B1917` charcoal background).
+* Must use clear, non-developer terminology (Notion-style, no jargon like "SymSpell").
 
-### Module 8: First-Run Onboarding & System Accessibility Setup
-* Must guide new users through permission setup, AI key configuration, and typing presets.
-* Must include direct OS accessibility launcher trigger (`open_accessibility_settings`) and auto-advance/continue state handling.
-
-### Module 9: Distribution Packaging & Portable Delivery
-* Must provide dual distribution formats: NSIS Webview2 setup installer (`KeyStroke_Installer_v0.1.0.exe`) and portable zero-install standalone zip archive (`KeyStroke_v0.1.0_Portable_x64.zip`).
-
+### Module 8: Windows Enterprise Deployment & Code Signing
+* Must bundle Windows application manifest (`keystroke.manifest`) with `uiAccess="true"` for UIPI bypass.
+* Must configure Tauri installer to target `perMachine` installation (`C:\Program Files\KeyStroke`).
+* Must integrate SignPath GitHub Actions workflow (`release.yml`) for automated code-signing.
 
 ---
 
-## 6. Non-Functional Requirements
+## 5. Non-Functional Requirements
 
-* **Privacy & Security**: All autocorrect, prediction, and dictionary operations must process 100% locally on the device. API keys must be encrypted in OS keychain storage.
-* **Cross-Platform Compatibility**: Rust engine core must compile cleanly for Windows (`x86_64-pc-windows-msvc` / `gnu`) and macOS (`x86_64` / `aarch64`).
-* **Installer & Deployment**: Windows installer pipeline must bundle WebView2 bootstrapper (`downloadBootstrapper`) for seamless single-click setup across client systems.
-* **Reliability & Thread Safety**: Foreground application and IPC handlers must remain fully responsive and panic-free, protecting backend state locks under heavy concurrent events.
-
+* **Privacy & Security**: All autocorrect, dictionary, and text shortcut processing executes 100% locally on the device. API keys stored locally in JSON configuration.
+* **Cross-Platform Compatibility**: Core Rust modules compile cleanly for Windows (`x86_64-pc-windows-msvc`) and macOS (`x86_64` / `aarch64`).
+* **Resource Optimization**: Background `SetProcessWorkingSetSize` trimmer runs every 30 seconds to flush unused memory back to the OS.

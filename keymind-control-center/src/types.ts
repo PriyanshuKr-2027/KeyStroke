@@ -106,6 +106,13 @@ export interface PersonalWordItem {
   date_added: string;
 }
 
+export interface UserProfile {
+  first_name: string;
+  last_name: string;
+  email: string;
+  date_of_birth?: string;
+}
+
 export interface ActivePrediction {
   candidate_word: string;
   full_suggestions: string[];

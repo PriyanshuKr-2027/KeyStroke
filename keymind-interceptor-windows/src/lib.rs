@@ -9,7 +9,7 @@ pub use context::ContextBuffer;
 pub use events::{Event, Modifiers};
 pub use hook::{is_focused_element_secure, translate_vk_code};
 pub use injector::TextInjector;
-pub use lifecycle::{start_interceptor, HookHandle};
+pub use lifecycle::{clear_word_buffer, is_interceptor_active, set_interceptor_active, start_interceptor, HookHandle};
 pub use service::{service_main, SERVICE_NAME};
 
 use tokio::sync::mpsc;

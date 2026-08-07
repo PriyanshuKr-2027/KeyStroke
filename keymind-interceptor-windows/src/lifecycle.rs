@@ -54,6 +54,19 @@ static SENDER: parking_lot::Mutex<Option<mpsc::Sender<Event>>> = parking_lot::co
 #[cfg(target_os = "windows")]
 static WORD_BUFFER: parking_lot::Mutex<String> = parking_lot::const_mutex(String::new());
 
+/// Global ON/OFF interceptor pause flag.
+/// When set to false, low_level_keyboard_proc ignores all keystrokes and passes them through.
+pub(crate) static INTERCEPTOR_ACTIVE: AtomicBool = AtomicBool::new(true);
+
+pub fn set_interceptor_active(active: bool) {
+    INTERCEPTOR_ACTIVE.store(active, Ordering::SeqCst);
+    info!("Keyboard interceptor active state set to: {}", active);
+}
+
+pub fn is_interceptor_active() -> bool {
+    INTERCEPTOR_ACTIVE.load(Ordering::SeqCst)
+}
+
 #[cfg(target_os = "windows")]
 unsafe extern "system" fn low_level_keyboard_proc(
     n_code: i32,
@@ -66,6 +79,13 @@ unsafe extern "system" fn low_level_keyboard_proc(
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
         GetAsyncKeyState, VK_BACK, VK_MENU, VK_CONTROL,
     };
+
+    // Skip processing if interceptor is turned OFF or if synthetic injection is in progress
+    if !INTERCEPTOR_ACTIVE.load(Ordering::SeqCst)
+        || crate::injector::IS_INJECTING.load(std::sync::atomic::Ordering::SeqCst)
+    {
+        return CallNextHookEx(HOOK_HANDLE, n_code, w_param, l_param);
+    }
 
     if n_code >= 0 && (w_param == WM_KEYDOWN as usize || w_param == WM_SYSKEYDOWN as usize) {
         let kbd = *(l_param as *const KBDLLHOOKSTRUCT);
@@ -120,6 +140,19 @@ unsafe extern "system" fn low_level_keyboard_proc(
     }
 
     CallNextHookEx(HOOK_HANDLE, n_code, w_param, l_param)
+}
+
+/// Clear the word buffer — called from main.rs immediately after every autocorrect/variable
+/// injection so the next word the user types starts from a clean slate (Bug 3 fix).
+/// Without this, the buffer still contains the old typed word after correction and the
+/// user's next backspace+retype cannot trigger a fresh WordCompleted event.
+pub fn clear_word_buffer() {
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(mut buf) = WORD_BUFFER.try_lock() {
+            buf.clear();
+        }
+    }
 }
 
 pub fn update_registered_hotkey(id: i32, modifiers: u32, vk_code: u32) {

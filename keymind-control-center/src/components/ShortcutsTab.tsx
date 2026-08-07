@@ -189,7 +189,7 @@ export const ShortcutsTab: React.FC<ShortcutsTabProps> = ({
             { label: "Ctrl+Alt+K" },
           ]}
           ctaLabel="Customize shortcuts"
-          onCtaClick={() => {}}
+          onCtaClick={() => setRecordingId("copilot_palette")}
           onDismiss={() => setShowCallout(false)}
         />
       )}
@@ -220,7 +220,14 @@ export const ShortcutsTab: React.FC<ShortcutsTabProps> = ({
                   <span className="px-2.5 py-1 bg-[#28282D] border border-[rgba(255,255,255,0.08)] rounded-[6px] font-mono text-[12px] text-[#EDEDED]">
                     {sc.shortcut}
                   </span>
-                  <button className="text-[#8F8F96] hover:text-[#EDEDED] opacity-0 group-hover:opacity-100 transition p-1">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRecordingId(sc.id);
+                    }}
+                    className="text-[#8F8F96] hover:text-[#EDEDED] opacity-0 group-hover:opacity-100 transition p-1 cursor-pointer"
+                    title="Click to record new shortcut"
+                  >
                     <Pencil className="w-4 h-4" />
                   </button>
                 </div>

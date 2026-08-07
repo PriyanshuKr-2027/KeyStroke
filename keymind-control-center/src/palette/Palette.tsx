@@ -39,6 +39,15 @@ export const Palette: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const handleBlur = () => {
+      invoke('close_palette');
+    };
+
+    window.addEventListener('blur', handleBlur);
+    return () => window.removeEventListener('blur', handleBlur);
+  }, []);
+
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();

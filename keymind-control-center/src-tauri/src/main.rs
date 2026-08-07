@@ -1122,6 +1122,13 @@ fn main() {
             clear_activity_history,
             purge_database
         ])
+        .on_window_event(|event| {
+            if let tauri::WindowEvent::Focused(false) = event.event() {
+                if event.window().label() == "palette" {
+                    let _ = event.window().hide();
+                }
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

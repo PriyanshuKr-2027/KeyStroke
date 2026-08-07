@@ -4,7 +4,7 @@ use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::sync::OnceLock;
-use tauri::Window;
+use tauri::{Manager, Window};
 
 static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
@@ -270,6 +270,12 @@ pub fn close_palette(window: Window) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn open_palette_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(palette) = app.get_window("palette") {
+        if palette.is_visible().unwrap_or(false) {
+            let _ = keymind_palette::close_palette(&app);
+            return Ok(());
+        }
+    }
     let context = keymind_palette::capture_context();
     keymind_palette::open_palette(&app, context).await
 }

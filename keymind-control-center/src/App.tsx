@@ -213,8 +213,18 @@ export const App: React.FC = () => {
     setActivePrediction(null);
   };
 
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    return (localStorage.getItem("keystroke_theme") as "light" | "dark") || "light";
+  });
+
+  const handleToggleTheme = () => {
+    const nextTheme = theme === "light" ? "dark" : "light";
+    setTheme(nextTheme);
+    localStorage.setItem("keystroke_theme", nextTheme);
+  };
+
   return (
-    <div className="flex h-screen bg-[#0D0D0E] text-[#EDEDED] overflow-hidden select-none relative font-sans">
+    <div className={`flex h-screen overflow-hidden select-none relative font-sans transition-colors duration-150 ${theme === "dark" ? "theme-dark bg-[#1B1917] text-[#ECE9E3]" : "theme-light bg-[#FAF8F5] text-[#1E1E1E]"}`}>
       {/* Toast Notification Layer */}
       <ToastContainer toasts={toasts} onDismiss={handleDismissToast} />
 
@@ -234,13 +244,28 @@ export const App: React.FC = () => {
         onToggleEngine={handleToggleEngine}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenWizard={() => setShowWizard(true)}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
       />
 
       {/* Scrollable Main Content Area with Drag Region Header */}
-      <div className="flex-1 flex flex-col h-screen overflow-hidden bg-[#0D0D0E]">
+      <div className={`flex-1 flex flex-col h-screen overflow-hidden transition-colors duration-150 ${theme === "dark" ? "bg-[#1B1917]" : "bg-[#FAF8F5]"}`}>
         {/* Top Window Drag Region Bar */}
-        <div data-tauri-drag-region className="h-[44px] shrink-0 border-b border-[rgba(255,255,255,0.08)] bg-[#0D0D0E] flex items-center justify-end px-4 cursor-default">
-          <span className="font-mono text-[11px] text-[#5C5C62]">KeyStroke Desktop v0.1.0</span>
+        <div data-tauri-drag-region className={`h-[44px] shrink-0 border-b flex items-center justify-end px-4 cursor-default transition-colors duration-150 ${theme === "dark" ? "border-[#383430] bg-[#1B1917] text-[#A39E93]" : "border-[#E8E4DC] bg-[#FAF8F5] text-[#6B6963]"}`}>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleToggleTheme}
+              className={`px-2.5 py-1 text-[11px] font-medium rounded-full border transition cursor-pointer flex items-center gap-1.5 ${
+                theme === "dark"
+                  ? "bg-[#282522] border-[#383430] text-[#ECE9E3] hover:bg-[#33302B]"
+                  : "bg-white border-[#E8E4DC] text-[#1E1E1E] hover:bg-[#F3EFEA]"
+              }`}
+              title="Toggle Claude Light / Dark Mode"
+            >
+              <span>{theme === "light" ? "☀️ Claude Light Mode" : "🌙 Claude Dark Mode"}</span>
+            </button>
+            <span className="font-mono text-[11px]">KeyStroke Desktop v0.1.0</span>
+          </div>
         </div>
 
         <ErrorBoundary>

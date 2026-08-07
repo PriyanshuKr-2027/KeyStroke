@@ -37,40 +37,40 @@ export const CalloutCard: React.FC<CalloutCardProps> = ({
 
   return (
     <div
-      className={`relative bg-[#FAFAE8] rounded-[12px] p-6 text-[#111111] transition-all duration-200 ${className}`}
+      className={`relative bg-[var(--accent-light)] border border-[var(--border)] rounded-[12px] p-6 text-[var(--text-primary)] transition-all duration-200 shadow-sm ${className}`}
     >
       {/* Dismiss Button */}
       <button
         onClick={handleDismiss}
-        className="absolute top-4 right-4 text-[#AAAAAA] hover:text-[#111111] p-1 transition cursor-pointer"
+        className="absolute top-4 right-4 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] p-1 transition cursor-pointer"
         aria-label="Dismiss feature introduction card"
       >
         <X className="w-4 h-4" />
       </button>
 
-      {/* Serif Headline */}
-      <h3 className="font-serif text-[28px] leading-[1.25] font-normal text-[#111111] pr-8 mb-2">
+      {/* Headline */}
+      <h3 className="font-serif text-[24px] leading-[1.25] font-semibold text-[var(--text-primary)] pr-8 mb-2">
         {headline}
       </h3>
 
       {/* Body */}
-      <p className="font-sans text-[14px] text-[#6B6B6B] leading-[1.5] max-w-[620px] mb-4">
+      <p className="font-sans text-[14px] text-[var(--text-secondary)] leading-[1.5] max-w-[620px] mb-4">
         {body}
       </p>
 
       {/* Chips */}
       {chips && chips.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 mb-5">
+        <div className="flex flex-wrap items-center gap-2 mb-4">
           {chips.map((chip, idx) => (
             <div
               key={idx}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#FFFFFF] border border-[#D0D0D0] rounded-lg text-[13px] text-[#111111]"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[var(--surface)] border border-[var(--border)] rounded-lg text-[13px] text-[var(--text-primary)] shadow-xs"
             >
               {chip.trigger && (
-                <span className="font-mono text-[#111111] font-medium">{chip.trigger}</span>
+                <span className="font-mono font-medium text-[var(--text-primary)]">{chip.trigger}</span>
               )}
-              {chip.arrow && <span className="text-[#AAAAAA]">{chip.arrow}</span>}
-              <span className="font-sans text-[#6B6B6B]">{chip.label}</span>
+              {chip.arrow && <span className="text-[var(--text-tertiary)]">{chip.arrow}</span>}
+              <span className="font-sans text-[var(--text-secondary)]">{chip.label}</span>
             </div>
           ))}
         </div>
@@ -80,7 +80,7 @@ export const CalloutCard: React.FC<CalloutCardProps> = ({
       {ctaLabel && (
         <button
           onClick={onCtaClick}
-          className="inline-flex items-center justify-center px-4 py-2 bg-[#111111] hover:bg-[#333333] text-[#FFFFFF] text-[14px] font-medium rounded-[8px] transition cursor-pointer active:scale-[0.99]"
+          className="inline-flex items-center justify-center px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-[13px] font-medium rounded-[8px] transition cursor-pointer active:scale-[0.99] shadow-sm"
         >
           {ctaLabel}
         </button>

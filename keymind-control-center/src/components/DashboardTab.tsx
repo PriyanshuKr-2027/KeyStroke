@@ -108,16 +108,16 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
   ];
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-[760px] mx-auto pb-10 font-sans select-none text-[#1E1E1E]">
+    <div className="space-y-6 animate-fade-in max-w-[760px] mx-auto pb-10 font-sans select-none text-[var(--text-primary)]">
       {/* Header Bar */}
       <div className="flex items-center justify-between">
-        <h1 className="text-[22px] font-semibold text-[#1E1E1E] tracking-tight">
+        <h1 className="text-[22px] font-semibold tracking-tight text-[var(--text-primary)]">
           Dashboard
         </h1>
 
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-[#22C55E]" />
-          <span className="text-[12px] font-medium text-[#6B6963]">Smart Writing Active</span>
+          <span className="text-[12px] font-medium text-[var(--text-secondary)]">Smart Writing Active</span>
         </div>
       </div>
 
@@ -140,11 +140,11 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           {statCards.map((card, i) => (
             <div
               key={i}
-              className="bg-white border border-[#E8E4DC] p-4 rounded-[12px] shadow-sm flex flex-col justify-between h-[104px] relative overflow-hidden"
+              className="bg-[var(--surface)] border border-[var(--border)] p-4 rounded-[12px] shadow-sm flex flex-col justify-between h-[104px] relative overflow-hidden transition-colors"
             >
               <div>
-                <span className="text-[12px] font-medium text-[#6B6963]">{card.label}</span>
-                <p className="text-[24px] font-semibold text-[#1E1E1E] tracking-tight mt-0.5">
+                <span className="text-[12px] font-medium text-[var(--text-secondary)]">{card.label}</span>
+                <p className="text-[24px] font-semibold text-[var(--text-primary)] tracking-tight mt-0.5">
                   {card.value}
                 </p>
               </div>
@@ -161,12 +161,12 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
       )}
 
       {/* Live Interactive Sandbox */}
-      <div className="bg-white border border-[#E8E4DC] rounded-[12px] p-4 space-y-3 shadow-sm">
+      <div className="bg-[var(--surface)] border border-[var(--border)] rounded-[12px] p-4 space-y-3 shadow-sm transition-colors">
         <div className="flex items-center justify-between">
-          <span className="text-[12px] font-mono font-semibold text-[#DA7756] uppercase tracking-wider">
+          <span className="text-[12px] font-mono font-semibold text-[var(--accent)] uppercase tracking-wider">
             INTERACTIVE TYPING SANDBOX
           </span>
-          <span className="text-[11px] text-[#6B6963]">Type below to test live engines</span>
+          <span className="text-[11px] text-[var(--text-secondary)]">Type below to test live engines</span>
         </div>
 
         <textarea
@@ -174,18 +174,18 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           value={sandboxText}
           onChange={(e) => setSandboxText(e.target.value)}
           placeholder="Type here to test autocorrect (e.g. 'teh', 'recieve') or next-word prediction..."
-          className="w-full bg-[#FAF8F5] border border-[#E8E4DC] rounded-[8px] p-3 text-[13px] text-[#1E1E1E] placeholder-[#96938A] focus:outline-none focus:border-[#DA7756] resize-none"
+          className="w-full bg-[var(--bg-app)] border border-[var(--border)] rounded-[8px] p-3 text-[13px] text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none focus:border-[var(--accent)] resize-none transition-colors"
         />
 
         {(sandboxCorrection || sandboxNextWord) && (
           <div className="flex items-center gap-3 pt-1 text-[12px]">
             {sandboxCorrection && (
-              <span className="px-2.5 py-1 bg-[#22C55E]/10 border border-[#22C55E]/20 text-[#16A34A] rounded-[6px] font-mono">
+              <span className="px-2.5 py-1 bg-[#22C55E]/10 border border-[#22C55E]/20 text-[#22C55E] rounded-[6px] font-mono">
                 Autocorrect: {sandboxCorrection.original} → <strong>{sandboxCorrection.corrected}</strong>
               </span>
             )}
             {sandboxNextWord && (
-              <span className="px-2.5 py-1 bg-[#DA7756]/10 border border-[#DA7756]/20 text-[#DA7756] rounded-[6px] font-mono">
+              <span className="px-2.5 py-1 bg-[var(--accent)]/10 border border-[var(--accent)]/20 text-[var(--accent)] rounded-[6px] font-mono">
                 Next-word: <strong>{sandboxNextWord}</strong>
               </span>
             )}
@@ -195,32 +195,32 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
 
       {/* Live Activity Feed */}
       <div className="space-y-3 pt-2">
-        <div className="text-[11px] font-mono font-semibold tracking-wider text-[#6B6963] uppercase">
+        <div className="text-[11px] font-mono font-semibold tracking-wider text-[var(--text-secondary)] uppercase">
           RECENT AUTOMATIC CORRECTIONS
         </div>
 
         {isLoading ? (
           <TableRowSkeleton count={3} />
         ) : activityFeed.length > 0 ? (
-          <div className="bg-white border border-[#E8E4DC] rounded-[12px] divide-y divide-[#E8E4DC] shadow-sm overflow-hidden">
+          <div className="bg-[var(--surface)] border border-[var(--border)] rounded-[12px] divide-y divide-[var(--border)] shadow-sm overflow-hidden transition-colors">
             {activityFeed.map((item) => (
               <div
                 key={item.id}
-                className="h-[48px] px-4 flex items-center justify-between hover:bg-[#FAF8F5] transition group"
+                className="h-[48px] px-4 flex items-center justify-between hover:bg-[var(--surface-hover)] transition group"
               >
                 <div className="flex items-center gap-2 text-[13px]">
-                  <span className="line-through text-[#96938A]">{item.original}</span>
-                  <span className="text-[#6B6963]">→</span>
-                  <span className="font-semibold text-[#16A34A]">{item.corrected}</span>
+                  <span className="line-through text-[var(--text-tertiary)]">{item.original}</span>
+                  <span className="text-[var(--text-secondary)]">→</span>
+                  <span className="font-semibold text-[#22C55E]">{item.corrected}</span>
                 </div>
 
                 <div className="flex items-center gap-3">
-                  <span className="text-[11px] font-mono text-[#96938A]">
+                  <span className="text-[11px] font-mono text-[var(--text-tertiary)]">
                     {item.time_ago || "Just now"}
                   </span>
                   <button
                     onClick={() => handleUndo(item.id)}
-                    className="text-[#6B6963] hover:text-[#1E1E1E] opacity-0 group-hover:opacity-100 transition p-1 cursor-pointer"
+                    className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] opacity-0 group-hover:opacity-100 transition p-1 cursor-pointer"
                     title="Undo correction"
                   >
                     <Undo2 className="w-3.5 h-3.5" />

@@ -813,12 +813,32 @@ fn purge_database(state: tauri::State<AppState>) -> Result<(), String> {
 }
 
 fn main() {
+    #[cfg(target_os = "windows")]
+    {
+        // Reduce WebView2 RAM footprint by collapsing renderer processes, disabling dedicated GPU process, and capping V8 GC memory
+        std::env::set_var(
+            "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+            "--disable-gpu --disable-gpu-compositing --renderer-process-limit=1 --js-flags=\"--max-old-space-size=48\" --disable-site-isolation-trials"
+        );
+    }
+
     let store_data = load_store();
 
     tauri::Builder::default()
         .setup(|app| {
             #[cfg(target_os = "windows")]
             {
+                // Spawn background memory trimmer to return unused committed pages to Windows OS every 30s
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                        unsafe {
+                            use windows_sys::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetSize};
+                            SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
+                        }
+                    }
+                });
+
                 let (tx, mut rx) = tokio::sync::mpsc::channel(64);
                 std::thread::spawn(move || {
                     let _ = keymind_interceptor_windows::lifecycle::start_interceptor(tx);

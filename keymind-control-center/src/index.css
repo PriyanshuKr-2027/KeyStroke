@@ -3,20 +3,36 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
+  :root, .theme-light {
     --bg-app: #FAF8F5; /* Warm Claude Paper Ivory */
+    --bg-sidebar: #F3EFEA; /* Soft Warm Sidebar */
     --surface: #FFFFFF; /* Pure Soft White Cards */
-    --surface-hover: #F3EFEA; /* Delicate Warm Hover */
-    --surface-active: #EBE5DD; /* Active State Surface */
-    --border: #E8E4DC; /* Warm Delicate Border */
+    --surface-hover: #F3EFEA; /* Delicate Hover */
+    --surface-active: #EBE5DD; /* Active State */
+    --border: #E8E4DC; /* Delicate Warm Border */
     --border-hover: #D6D0C4;
-    --text-primary: #1E1E1E; /* Crisp Deep Charcoal */
-    --text-secondary: #6B6963; /* Warm Muted Slate */
-    --text-tertiary: #96938A; /* Soft Muted Warm Gray */
-    --accent: #DA7756; /* Signature Claude Terracotta Orange */
+    --text-primary: #1E1E1E; /* Crisp Charcoal */
+    --text-secondary: #6B6963; /* Muted Slate */
+    --text-tertiary: #96938A; /* Soft Gray */
+    --accent: #DA7756; /* Signature Claude Terracotta */
     --accent-hover: #C26243;
-    --accent-light: #F7EEEC; /* Terracotta Tint Highlight */
-    --accent-indigo: #DA7756;
+    --accent-light: #F7EEEC;
+  }
+
+  .theme-dark {
+    --bg-app: #1B1917; /* Rich Deep Warm Charcoal */
+    --bg-sidebar: #22201D; /* Dark Warm Sidebar */
+    --surface: #282522; /* Dark Warm Card Surface */
+    --surface-hover: #33302B; /* Dark Warm Hover */
+    --surface-active: #3E3B35; /* Dark Active State */
+    --border: #383430; /* Dark Warm Border */
+    --border-hover: #4A4540;
+    --text-primary: #ECE9E3; /* Warm Ivory Text */
+    --text-secondary: #A39E93; /* Muted Warm Slate */
+    --text-tertiary: #78736B; /* Soft Gray */
+    --accent: #E07A5F; /* Claude Dark Terracotta */
+    --accent-hover: #C9664D;
+    --accent-light: #3D2B26;
   }
 
   * {
@@ -40,7 +56,7 @@
   }
 }
 
-/* Elegant Light Scrollbars */
+/* Scrollbars */
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -49,11 +65,11 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.12);
+  background: rgba(120, 115, 107, 0.25);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.25);
+  background: rgba(120, 115, 107, 0.45);
 }
 
 /* Animations */

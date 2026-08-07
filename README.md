@@ -1,19 +1,21 @@
 # KeyMind — System-Wide AI Desktop Typing Intelligence
 
-> **KeyMind** is a high-performance, system-wide AI desktop typing intelligence suite built in **Rust**, **Tauri**, **React**, and **TypeScript**. Operating quietly in the background via low-level keyboard interception, KeyMind provides real-time autocorrect, sub-1ms next-word prediction, multi-pass right-to-left grammar checking, slash command snippet expansion, and dual-provider AI copilot assistance across all native applications (IDE, Slack, Browsers, Word, Terminals).
+> **KeyMind** is a high-performance, system-wide AI desktop typing intelligence suite built in **Rust**, **Tauri**, **React**, and **TypeScript**. Operating quietly in the background via low-level keyboard interception, KeyMind provides real-time QWERTY spatial autocorrect, sub-1ms next-word prediction, multi-pass right-to-left grammar checking, slash command snippet expansion with multi-placeholder support, a floating AI copilot palette, and dual-provider AI assistance across all native applications (IDE, Slack, Browsers, Word, Terminals).
 
 ---
 
 ## ⚡ Key Features
 
-- **System-Wide Key Interception**: Unbuffered hardware keyboard hooks for Windows (`WH_KEYBOARD_LL`) and macOS (`CGEventTap`) with sub-1ms latency.
-- **SymSpell Autocorrect & Homophones**: Delete Edit Distance typo correction against an 82,000-word frequency dictionary and contextual homophone resolution (`their` / `there` / `they're`, `then` / `than`).
+- **System-Wide Key Interception**: Unbuffered hardware keyboard hooks for Windows (`WH_KEYBOARD_LL`) and macOS (`CGEventTap`) with sub-1ms latency and clean hotkey suppression (`return 1`).
+- **Spatial QWERTY Autocorrect & Homophones**: Physical key adjacency proximity model for fat-finger typo likelihood $P(t|w)$ with adaptive scoring (2.5x ratio threshold for adjacent keys vs 10x for non-adjacent), combined with contextual homophone resolution (`their` / `there` / `they're`).
 - **Trigram Next-Word Prediction**: Memory-mapped n-gram probabilities & ONNX runtime powering a floating prediction chip accepted with <kbd>Tab ↹</kbd>.
 - **Multi-Pass Right-to-Left Grammar Fixer**: Connects to LanguageTool to evaluate full sentence context and applies fixes in descending offset order to avoid character index shifts.
-- **In-Line Slash Command Expansions**: Instant trigger expansion for static text, dynamic expressions (`/date`, `/time`), and custom AI prompts (`/reply`).
-- **Dual AI Copilot Failover**: High-throughput Groq (`llama-3.3-70b-versatile`) with automatic failover to Cerebras (`llama3.1-8b`).
+- **In-Line Slash Command Expansions**: Instant trigger expansion for static text, dynamic expressions (`/date`, `/time`), system clipboard injection (`{clipboard}`), multi-placeholder chaining, and exact backspacing.
+- **Floating AI Copilot Palette (`keymind-palette`)**: Dedicated quick-access AI prompt bar powered by Groq (`llama-3.3-70b-versatile`) with automatic failover to Cerebras (`llama3.1-8b`).
+- **Claude Warm Paper Ivory Aesthetic**: Modern, refined UI for Control Center & Palette using Claude paper ivory (`#FAF8F5`), pure soft white card surfaces (`#FFFFFF`), delicate borders (`#E8E4DC`), and terracotta orange accents (`#DA7756`) with persistent light/dark themes.
+- **Ultra-Low Memory Footprint & Background Trimmer**: Optimized WebView2 flags (`--disable-gpu`, `--renderer-process-limit=1`, `--js-flags max-old-space-size=48`) and Win32 heap working-set trimmer saving 120MB+ system RAM for sub-60MB baseline operation.
+- **Windows Autostart & Boot Persistence**: Registry-backed auto-start service (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`) for zero-friction background startup on Windows boot.
 - **Privacy-First Local Storage**: Custom whitelists and learned user phrases stored 100% locally in SQLite (`dictionary.db`).
-- **Glassmorphic Desktop Control Center**: Modern Tauri + React + Tailwind CSS dashboard with onboarding wizard, keybinding recorder, per-app exclusion rules, and interactive sandbox testing.
 
 ---
 
@@ -21,21 +23,21 @@
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────────────┐
-│                           TAURI / REACT CONTROL CENTER                            │
-│    (Sidebar, Metrics Dashboard, Variables Manager, Shortcuts, Grammar Sandbox)    │
+│                      TAURI / REACT CONTROL CENTER & PALETTE                       │
+│    (Sidebar, Metrics Dashboard, Variables Manager, Shortcuts, Claude Ivory Theme) │
 └───────────────────────────────────────────────────────────────────────────────────┘
                                           │  IPC (Tauri Command / JSON-RPC)
                                           ▼
 ┌───────────────────────────────────────────────────────────────────────────────────┐
 │                                KEYMIND CORE DAEMON                                │
-│                                 (keymind-engine)                                  │
+│                   (keymind-engine & Win32 Heap RAM Trimmer)                       │
 └───────────────────────────────────────────────────────────────────────────────────┘
        │                         │                        │                     │
        ▼                         ▼                        ▼                     ▼
 [Key Interceptor]       [Autocorrect Engine]    [Prediction Engine]   [Grammar Engine]
 keymind-interceptor     keymind-autocorrect     keymind-prediction    keymind-grammar
-(Win32 Hook /           (SymSpell 0.5.2 +       (Trigram Model +      (LanguageTool
- CGEventTap)             82k Dictionary)         ONNX Runtime)         HTTP Client)
+(Win32 Hook /           (QWERTY Spatial +       (Trigram Model +      (LanguageTool
+ CGEventTap)             SymSpell 82k Dict)      ONNX Runtime)         HTTP Client)
                                  │                                              │
                                  ▼                                              ▼
                          [Local Storage]                              [Dual AI Failover]
@@ -45,20 +47,22 @@ keymind-interceptor     keymind-autocorrect     keymind-prediction    keymind-gr
 
 ---
 
-## 📦 Workspace Workspace Crates
+## 📦 Workspace Crates
 
 | Crate / Subsystem | Description | Key Technologies |
 | :--- | :--- | :--- |
-| [`keymind-engine`](file:///c:/Users/10pri/Downloads/KEYBOARD/keymind-engine) | Main system daemon orchestrating pipelines | Rust, Tokio |
-| [`keymind-interceptor-windows`](file:///c:/Users/10pri/Downloads/KEYBOARD/keymind-interceptor-windows) | Windows low-level keyboard hook | Win32 `windows-sys`, `user32.dll` |
-| [`keymind-autocorrect`](file:///c:/Users/10pri/Downloads/KEYBOARD/keymind-autocorrect) | SymSpell 82k lookup & homophone solver | `symspell`, `rusqlite`, SQLite 3 |
+| [`keymind-engine`](file:///c:/Users/10pri/Downloads/KEYBOARD/keymind-engine) | Main system daemon orchestrating pipelines, RAM trimmer & autostart | Rust, Tokio, Win32 API |
+| [`keymind-interceptor-windows`](file:///c:/Users/10pri/Downloads/KEYBOARD/keymind-interceptor-windows) | Windows low-level keyboard hook & hotkey suppression | Win32 `windows-sys`, `user32.dll` |
+| [`keymind-interceptor-macos`](file:///c:/Users/10pri/Downloads/KEYBOARD/keymind-interceptor-macos) | macOS low-level keyboard event interceptor | CoreGraphics `CGEventTap` |
+| [`keymind-autocorrect`](file:///c:/Users/10pri/Downloads/KEYBOARD/keymind-autocorrect) | QWERTY spatial key proximity model, SymSpell 82k lookup & homophone solver | `symspell`, `rusqlite`, SQLite 3 |
 | [`keymind-prediction`](file:///c:/Users/10pri/Downloads/KEYBOARD/keymind-prediction) | N-gram trigram prediction & ONNX engine | `ort`, `tokenizers`, mmap |
-| [`keymind-grammar`](file:///c:/Users/10pri/Downloads/KEYBOARD/keymind-grammar) | LanguageTool client & right-to-left fixer | `reqwest`, `serde_json` |
-| [`keymind-variables`](file:///c:/Users/10pri/Downloads/KEYBOARD/keymind-variables) | Slash trigger expansion engine | Dynamic Expression Resolver |
-| [`keymind-ipc`](file:///c:/Users/10pri/Downloads/KEYBOARD/keymind-ipc) | Shared SQLite schema, migrations, and IPC | `sqlx`, `tokio` |
-| [`keymind-learning`](file:///c:/Users/10pri/Downloads/KEYBOARD/keymind-learning) | Local user phrase learning & whitelist | SQLite n-gram tracker |
+| [`keymind-grammar`](file:///c:/Users/10pri/Downloads/KEYBOARD/keymind-grammar) | LanguageTool client & right-to-left offset fixer | `reqwest`, `serde_json` |
+| [`keymind-variables`](file:///c:/Users/10pri/Downloads/KEYBOARD/keymind-variables) | Slash trigger expansion engine & multi-placeholder resolver | Dynamic Expression Engine |
+| [`keymind-ipc`](file:///c:/Users/10pri/Downloads/KEYBOARD/keymind-ipc) | Shared SQLite schema, migrations, and IPC protocols | `sqlx`, `tokio` |
+| [`keymind-learning`](file:///c:/Users/10pri/Downloads/KEYBOARD/keymind-learning) | Local user phrase learning & whitelist tracker | SQLite n-gram tracker |
+| [`keymind-palette`](file:///c:/Users/10pri/Downloads/KEYBOARD/keymind-palette) | Dedicated floating AI Copilot prompt bar | Tauri, React, Claude Ivory UI |
 | [`keymind-sync-server`](file:///c:/Users/10pri/Downloads/KEYBOARD/keymind-sync-server) | Dual AI Copilot service & cloud sync API | Express, Prisma, Groq, Cerebras |
-| [`keymind-control-center`](file:///c:/Users/10pri/Downloads/KEYBOARD/keymind-control-center) | Desktop user interface and settings | Tauri, React, TypeScript, Tailwind |
+| [`keymind-control-center`](file:///c:/Users/10pri/Downloads/KEYBOARD/keymind-control-center) | Desktop dashboard, keybinding recorder & settings manager | Tauri, React, TypeScript, Tailwind |
 
 ---
 
@@ -113,12 +117,22 @@ cargo bench --package keymind-autocorrect
 
 ---
 
+## 💾 Releases & Distribution
+
+KeyMind comes with pre-compiled distribution bundles for Windows 64-bit:
+- **Installer**: `KeyStroke_Installer_v0.1.0.exe`
+- **Portable**: `KeyStroke_v0.1.0_Portable_x64.zip`
+
+---
+
 ## 📄 Documentation
 
-- [Product Requirements Document (PRD)](file:///c:/Users/10pri/Downloads/KEYBOARD/prd.md)
-- [Technical Requirements Document (TRD)](file:///c:/Users/10pri/Downloads/KEYBOARD/trd.md)
-- [Design Specification](file:///c:/Users/10pri/Downloads/KEYBOARD/design.md)
-- [Feature Matrix & Breakdown](file:///c:/Users/10pri/Downloads/KEYBOARD/features.md)
+- 📋 [Product Requirements Document (PRD)](file:///c:/Users/10pri/Downloads/KEYBOARD/docxx/prd.md)
+- ⚙️ [Technical Requirements Document (TRD)](file:///c:/Users/10pri/Downloads/KEYBOARD/docxx/trd.md)
+- 🎨 [Design Specification](file:///c:/Users/10pri/Downloads/KEYBOARD/docxx/design.md)
+- 📊 [Feature Matrix & Breakdown](file:///c:/Users/10pri/Downloads/KEYBOARD/docxx/features.md)
+- 🔍 [Audit & Fix Report](file:///c:/Users/10pri/Downloads/KEYBOARD/docxx/keystroke_comprehensive_audit_and_fix_report.md)
+- 🚀 [Deployment & Signing Guide](file:///c:/Users/10pri/Downloads/KEYBOARD/docxx/keystroke_deployment_and_signing_guide.md)
 
 ---
 

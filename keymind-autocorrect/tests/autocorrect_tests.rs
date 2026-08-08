@@ -113,3 +113,106 @@ async fn test_high_frequency_word_typo_corrections() {
         );
     }
 }
+
+#[tokio::test]
+async fn test_50_plus_mixed_words_and_unseen_alterations() {
+    let engine = setup_test_engine().await;
+
+    // 60 Mixed Words: Layer 0.5 Explicit + SymSpell Dynamic Unseen Alterations
+    let test_cases = vec![
+        // --- 1. Conversational & Everyday Typos ---
+        ("tommorow", "tomorrow"),
+        ("definately", "definitely"),
+        ("seperate", "separate"),
+        ("buisness", "business"),
+        ("goverment", "government"),
+        ("enviroment", "environment"),
+        ("expierence", "experience"),
+        ("langauge", "language"),
+        ("truely", "truly"),
+        ("freind", "friend"),
+
+        // --- 2. Hinglish & Desi Words ---
+        ("thik", "theek"),
+        ("shukriyaa", "shukriya"),
+        ("dhanyavad", "dhanyawad"),
+        ("pareshann", "pareshan"),
+        ("nameste", "namaste"),
+        ("bhaiya", "bhaiya"),
+        ("chutiyapa", "chutiyapa"),
+        ("jugaad", "jugaad"),
+        ("biriyani", "biryani"),
+        ("diwali", "diwali"),
+
+        // --- 3. Academic & Abstract Concepts ---
+        ("ambigous", "ambiguous"),
+        ("anomoly", "anomaly"),
+        ("assumtion", "assumption"),
+        ("capabilty", "capability"),
+        ("coincedence", "coincidence"),
+        ("correlaton", "correlation"),
+        ("efficiancy", "efficiency"),
+        ("hypothetcal", "hypothetical"),
+        ("implicaton", "implication"),
+        ("methodolgy", "methodology"),
+
+        // --- 4. Legal & Formal Vocabulary ---
+        ("arbitraton", "arbitration"),
+        ("affiadavit", "affidavit"),
+        ("defendent", "defendant"),
+        ("enforcemnt", "enforcement"),
+        ("jurisdicton", "jurisdiction"),
+        ("negligance", "negligence"),
+        ("prosecuton", "prosecution"),
+        ("regulaton", "regulation"),
+        ("statutary", "statutory"),
+        ("testimonny", "testimony"),
+
+        // --- 5. Tech, Math & Computing ---
+        ("algoritm", "algorithm"),
+        ("architecure", "architecture"),
+        ("asyncronous", "asynchronous"),
+        ("authentification", "authentication"),
+        ("concurancy", "concurrency"),
+        ("dependancy", "dependency"),
+        ("implemetation", "implementation"),
+        ("infrastrucutre", "infrastructure"),
+        ("paramatre", "parameter"),
+        ("performace", "performance"),
+
+        // --- 6. UNSEEN / DYNAMIC ALTERATIONS (Proving SymSpell distance + JamSpell LM) ---
+        ("recieeve", "receive"),
+        ("buhut", "bahut"),
+        ("algrithm", "algorithm"),
+        ("hallo", "hello"),
+        ("woudl", "would"),
+        ("coudl", "could"),
+        ("shoudl", "should"),
+        ("becuase", "because"),
+        ("welcom", "welcome"),
+        ("pleas", "please"),
+    ];
+
+    println!("\n==================================================================");
+    println!(" Running 60-Word Mixed Autocorrect Verification Suite");
+    println!("==================================================================\n");
+
+    let mut passed = 0;
+    for (typo, expected) in &test_cases {
+        let result = engine.check(typo, "this is a ");
+        assert!(
+            result.is_some(),
+            "FAIL: Word '{}' was not recognized by any layer!",
+            typo
+        );
+        let corr = result.unwrap();
+        assert_eq!(
+            corr.corrected, *expected,
+            "FAIL: Input '{}' expected '{}', but got '{}'",
+            typo, expected, corr.corrected
+        );
+        passed += 1;
+    }
+
+    println!("SUCCESS: All {} mixed test cases passed perfectly!\n", passed);
+}

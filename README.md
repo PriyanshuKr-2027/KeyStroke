@@ -119,20 +119,32 @@ cargo bench --package keymind-autocorrect
 
 ## 💾 Releases & Distribution
 
-KeyMind comes with pre-compiled distribution bundles for Windows 64-bit:
+KeyMind / KeyStroke comes with pre-compiled distribution bundles for Windows 64-bit:
 - **Installer**: `KeyStroke_Installer_v0.1.0.exe`
 - **Portable**: `KeyStroke_v0.1.0_Portable_x64.zip`
+
+### 🔏 Code Signing
+Free code signing for KeyStroke Windows binaries is provided by the **[SignPath Foundation](https://signpath.org/)** using an open-source OV code-signing certificate.
+
+---
+
+## 🔒 Privacy-First Local Storage
+
+KeyStroke is built from the ground up with a strict privacy-first architecture:
+- **100% Local Execution**: Custom whitelists, learned user phrases, and keystroke context buffers are processed entirely on your local machine and stored in local SQLite databases (`dictionary.db`).
+- **Zero Keystroke Tracking or Telemetry**: KeyStroke does not record, log, or transmit your private keypresses, personal data, or typing history to any external servers.
+- **Opt-in Cloud Services**: Optional AI copilot integrations (e.g. Groq / Cerebras APIs) are only invoked when explicitly triggered via the palette (`keymind-palette`) or slash commands.
 
 ---
 
 ## 📄 Documentation
 
-- 📋 [Product Requirements Document (PRD)](file:///c:/Users/10pri/Downloads/KEYBOARD/docxx/prd.md)
-- ⚙️ [Technical Requirements Document (TRD)](file:///c:/Users/10pri/Downloads/KEYBOARD/docxx/trd.md)
-- 🎨 [Design Specification](file:///c:/Users/10pri/Downloads/KEYBOARD/docxx/design.md)
-- 📊 [Feature Matrix & Breakdown](file:///c:/Users/10pri/Downloads/KEYBOARD/docxx/features.md)
-- 🔍 [Audit & Fix Report](file:///c:/Users/10pri/Downloads/KEYBOARD/docxx/keystroke_comprehensive_audit_and_fix_report.md)
-- 🚀 [Deployment & Signing Guide](file:///c:/Users/10pri/Downloads/KEYBOARD/docxx/keystroke_deployment_and_signing_guide.md)
+- 📋 [Product Requirements Document (PRD)](docxx/prd.md)
+- ⚙️ [Technical Requirements Document (TRD)](docxx/trd.md)
+- 🎨 [Design Specification](docxx/design.md)
+- 📊 [Feature Matrix & Breakdown](docxx/features.md)
+- 🔍 [Audit & Fix Report](docxx/keystroke_comprehensive_audit_and_fix_report.md)
+- 🚀 [Deployment & Signing Guide](docxx/keystroke_deployment_and_signing_guide.md)
 
 ---
 

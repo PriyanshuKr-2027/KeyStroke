@@ -1,33 +1,47 @@
-use crate::db::SqlitePool;
 use crate::protocol::{
     DailyStatsDto, IpcRequest, IpcResponse, LearnedPhraseDto, VariableDto,
 };
+use keymind_learning::LearningEngine;
+use keymind_variables::VariableEngine;
 use std::fs;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 #[cfg(unix)]
 use tokio::net::UnixListener;
 use tracing::info;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 pub struct IpcServer {
-    pool: Arc<SqlitePool>,
+    variable_engine: Arc<VariableEngine>,
+    learning_engine: Arc<LearningEngine>,
     socket_path: String,
     learning_enabled: Arc<AtomicBool>,
 }
 
 impl IpcServer {
-    pub fn new(pool: Arc<SqlitePool>, socket_path: Option<&str>, learning_enabled: Arc<AtomicBool>) -> Self {
-        let path = socket_path.unwrap_or(if cfg!(windows) { "127.0.0.1:9123" } else { "/tmp/keymind.sock" }).to_string();
+    pub fn new(
+        variable_engine: Arc<VariableEngine>,
+        learning_engine: Arc<LearningEngine>,
+        socket_path: Option<&str>,
+        learning_enabled: Arc<AtomicBool>,
+    ) -> Self {
+        let path = socket_path
+            .unwrap_or(if cfg!(windows) {
+                "127.0.0.1:9123"
+            } else {
+                "/tmp/keymind.sock"
+            })
+            .to_string();
         Self {
-            pool,
+            variable_engine,
+            learning_engine,
             socket_path: path,
             learning_enabled,
         }
     }
 
-    /// Process a single incoming IpcRequest against SQLite pool.
+    /// Process a single incoming IpcRequest against the local engines.
     pub async fn handle_request(&self, request: IpcRequest) -> IpcResponse {
         match request {
             IpcRequest::STATUS_REQUEST => IpcResponse::STATUS_RESPONSE {
@@ -36,26 +50,17 @@ impl IpcServer {
                 grammar: "ready".to_string(),
             },
             IpcRequest::VARIABLE_LIST => {
-                let rows: Result<Vec<(String, String, Option<String>, Option<String>, Option<String>, i64)>, _> =
-                    sqlx::query_as(
-                        "SELECT key, var_type, value, ai_prompt, description, use_count FROM variables",
-                    )
-                    .fetch_all(self.pool.as_ref())
-                    .await;
-
-                match rows {
+                match self.variable_engine.list_all().await {
                     Ok(items) => {
                         let variables = items
                             .into_iter()
-                            .map(|(key, var_type, value, ai_prompt, description, use_count)| {
-                                VariableDto {
-                                    key,
-                                    var_type,
-                                    value,
-                                    ai_prompt,
-                                    description,
-                                    use_count,
-                                }
+                            .map(|v| VariableDto {
+                                key: v.key,
+                                var_type: v.var_type.as_str().to_string(),
+                                value: v.value,
+                                ai_prompt: v.ai_prompt,
+                                description: None,
+                                use_count: v.use_count,
                             })
                             .collect();
                         IpcResponse::VARIABLE_LIST_RESPONSE { variables }
@@ -66,33 +71,22 @@ impl IpcServer {
                 }
             }
             IpcRequest::VARIABLE_UPSERT { variable } => {
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs() as i64;
+                let var = keymind_variables::db::Variable {
+                    key: variable.key.clone(),
+                    var_type: match variable.var_type.as_str() {
+                        "static" => keymind_variables::db::VarType::Static,
+                        "dynamic" => keymind_variables::db::VarType::Dynamic,
+                        "ai" => keymind_variables::db::VarType::Ai,
+                        _ => keymind_variables::db::VarType::Static,
+                    },
+                    value: variable.value.clone(),
+                    ai_prompt: variable.ai_prompt.clone(),
+                    use_count: variable.use_count,
+                    created_at: 0,
+                    updated_at: 0,
+                };
 
-                let res = sqlx::query(
-                    "INSERT INTO variables (key, var_type, value, ai_prompt, description, use_count, created_at, updated_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                     ON CONFLICT(key) DO UPDATE SET
-                     var_type = excluded.var_type,
-                     value = excluded.value,
-                     ai_prompt = excluded.ai_prompt,
-                     description = excluded.description,
-                     updated_at = excluded.updated_at",
-                )
-                .bind(&variable.key)
-                .bind(&variable.var_type)
-                .bind(&variable.value)
-                .bind(&variable.ai_prompt)
-                .bind(&variable.description)
-                .bind(variable.use_count)
-                .bind(now)
-                .bind(now)
-                .execute(self.pool.as_ref())
-                .await;
-
-                match res {
+                match self.variable_engine.upsert(var).await {
                     Ok(_) => IpcResponse::OK,
                     Err(e) => IpcResponse::ERROR {
                         message: e.to_string(),
@@ -100,12 +94,7 @@ impl IpcServer {
                 }
             }
             IpcRequest::VARIABLE_DELETE { key } => {
-                let res = sqlx::query("DELETE FROM variables WHERE key = ?")
-                    .bind(&key)
-                    .execute(self.pool.as_ref())
-                    .await;
-
-                match res {
+                match self.variable_engine.delete(&key).await {
                     Ok(_) => IpcResponse::OK,
                     Err(e) => IpcResponse::ERROR {
                         message: e.to_string(),
@@ -113,45 +102,26 @@ impl IpcServer {
                 }
             }
             IpcRequest::STATS_REQUEST => {
-                let today_str = chrono::Local::now().format("%Y-%m-%d").to_string();
-                let row: Option<(i64, i64, i64, i64)> = sqlx::query_as(
-                    "SELECT words_typed, corrections_made, variables_used, ai_requests FROM daily_stats WHERE date = ?",
-                )
-                .bind(&today_str)
-                .fetch_optional(self.pool.as_ref())
-                .await
-                .unwrap_or(None);
-
-                let today = match row {
-                    Some((words_typed, corrections_made, variables_used, ai_requests)) => {
-                        DailyStatsDto {
-                            words_typed,
-                            corrections_made,
-                            variables_used,
-                            ai_requests,
-                        }
-                    }
-                    None => DailyStatsDto::default(),
+                // Mock daily stats for now since we removed SQLite
+                let today = DailyStatsDto {
+                    words_typed: 0,
+                    corrections_made: 0,
+                    variables_used: 0,
+                    ai_requests: 0,
                 };
-
                 IpcResponse::STATS_RESPONSE { today }
             }
             IpcRequest::LEARNED_PHRASES => {
-                let rows: Result<Vec<(String, String, i64, bool, Option<String>)>, _> =
-                    sqlx::query_as("SELECT id, phrase, frequency, pinned, category FROM learned_memory")
-                        .fetch_all(self.pool.as_ref())
-                        .await;
-
-                match rows {
+                match self.learning_engine.db.get_learned_phrases().await {
                     Ok(items) => {
                         let phrases = items
                             .into_iter()
-                            .map(|(id, phrase, frequency, pinned, category)| LearnedPhraseDto {
-                                id,
-                                phrase,
-                                frequency,
-                                pinned,
-                                category,
+                            .map(|p| LearnedPhraseDto {
+                                id: p.id,
+                                phrase: p.phrase,
+                                frequency: p.frequency as i64,
+                                pinned: p.is_pinned,
+                                category: None,
                             })
                             .collect();
                         IpcResponse::LEARNED_PHRASES_RESPONSE { phrases }
@@ -162,12 +132,7 @@ impl IpcServer {
                 }
             }
             IpcRequest::PIN_PHRASE { id } => {
-                let res = sqlx::query("UPDATE learned_memory SET pinned = 1 WHERE id = ?")
-                    .bind(&id)
-                    .execute(self.pool.as_ref())
-                    .await;
-
-                match res {
+                match self.learning_engine.db.pin_phrase(&id).await {
                     Ok(_) => IpcResponse::OK,
                     Err(e) => IpcResponse::ERROR {
                         message: e.to_string(),
@@ -175,12 +140,7 @@ impl IpcServer {
                 }
             }
             IpcRequest::DELETE_PHRASE { id } => {
-                let res = sqlx::query("DELETE FROM learned_memory WHERE id = ?")
-                    .bind(&id)
-                    .execute(self.pool.as_ref())
-                    .await;
-
-                match res {
+                match self.learning_engine.db.delete_phrase(&id).await {
                     Ok(_) => IpcResponse::OK,
                     Err(e) => IpcResponse::ERROR {
                         message: e.to_string(),
@@ -189,6 +149,7 @@ impl IpcServer {
             }
             IpcRequest::TOGGLE_LEARNING { enabled } => {
                 self.learning_enabled.store(enabled, Ordering::Relaxed);
+                self.learning_engine.toggle_learning(enabled);
                 IpcResponse::OK
             }
         }
@@ -258,7 +219,8 @@ impl IpcServer {
 
     fn clone_handle(&self) -> Self {
         Self {
-            pool: Arc::clone(&self.pool),
+            variable_engine: Arc::clone(&self.variable_engine),
+            learning_engine: Arc::clone(&self.learning_engine),
             socket_path: self.socket_path.clone(),
             learning_enabled: Arc::clone(&self.learning_enabled),
         }
@@ -266,11 +228,12 @@ impl IpcServer {
 }
 
 pub async fn start_ipc_server(
-    pool: Arc<SqlitePool>,
+    variable_engine: Arc<VariableEngine>,
+    learning_engine: Arc<LearningEngine>,
     socket_path: &str,
     learning_enabled: Arc<AtomicBool>,
-) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error + Send + Sync>> {
-    let server = IpcServer::new(pool, Some(socket_path), learning_enabled);
+) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
+    let server = IpcServer::new(variable_engine, learning_engine, Some(socket_path), learning_enabled);
     let handle = tokio::spawn(async move {
         if let Err(e) = server.run().await {
             tracing::error!("IPC Server failed: {}", e);

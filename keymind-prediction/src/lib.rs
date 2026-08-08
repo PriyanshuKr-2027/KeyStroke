@@ -2,12 +2,10 @@ pub mod onnx;
 pub mod trigram;
 
 pub use onnx::OnnxPredictor;
-pub use trigram::{init_trigram_table, load_bundled_trigrams, query_trigrams, update_trigram};
+pub use trigram::TrigramEngine;
 
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 pub const BUNDLED_TRIGRAMS: &str = include_str!("../data/trigrams.tsv");
 
@@ -28,17 +26,18 @@ pub enum PredictionEvent {
 }
 
 pub struct PredictionEngine {
-    db: Arc<SqlitePool>,
+    trigram: TrigramEngine,
     onnx: OnnxPredictor,
 }
 
 impl PredictionEngine {
-    pub async fn new(db: Arc<SqlitePool>, model_path: PathBuf) -> Result<Self, sqlx::Error> {
-        init_trigram_table(&db).await?;
-        let _ = load_bundled_trigrams(&db, BUNDLED_TRIGRAMS).await;
+    pub async fn new(store_path: PathBuf, model_path: PathBuf) -> Result<Self, std::io::Error> {
+        let trigram = TrigramEngine::new(store_path);
+        trigram.init_db().await?;
+        let _ = trigram.load_bundled_trigrams(BUNDLED_TRIGRAMS).await;
 
         Ok(Self {
-            db,
+            trigram,
             onnx: OnnxPredictor::new(model_path),
         })
     }
@@ -51,7 +50,7 @@ impl PredictionEngine {
             let w1 = words[words.len() - 2];
             let w2 = words[words.len() - 1];
 
-            if let Ok((suggestions, confidence)) = query_trigrams(&self.db, w1, w2).await {
+            if let Ok((suggestions, confidence)) = self.trigram.query_trigrams(w1, w2).await {
                 if confidence >= 0.4 && !suggestions.is_empty() {
                     return (suggestions, confidence);
                 }
@@ -64,6 +63,6 @@ impl PredictionEngine {
     }
 
     pub async fn record_word_sequence(&self, w1: &str, w2: &str, w3: &str) {
-        let _ = update_trigram(&self.db, w1, w2, w3).await;
+        let _ = self.trigram.update_trigram(w1, w2, w3).await;
     }
 }

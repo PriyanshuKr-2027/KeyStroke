@@ -2,7 +2,6 @@ pub mod pipeline;
 
 use keymind_autocorrect::AutocorrectEngine;
 use keymind_grammar::GrammarEngine;
-use keymind_ipc::db::init_db;
 use keymind_ipc::server::start_ipc_server;
 use keymind_learning::LearningEngine;
 use keymind_prediction::PredictionEngine;
@@ -32,46 +31,68 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let _ = dotenvy::dotenv();
 
-    // 2. Initialize SQLite Database
-    let db_pool = Arc::new(init_db().await?);
-    info!("SQLite database initialized and migrations applied.");
-
-    // 3. Instantiate Sub-Crates
-    let autocorrect = Arc::new(AutocorrectEngine::new(db_pool.clone()));
-    let variables = Arc::new(VariableEngine::new(db_pool.clone()));
+    // 2. Instantiate Sub-Crates
+    let autocorrect_path = dirs_next::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("keymind")
+        .join("autocorrect.json");
+    let autocorrect = Arc::new(AutocorrectEngine::new(autocorrect_path));
+    if let Err(e) = autocorrect.initialize().await {
+        tracing::error!("Failed to initialize Autocorrect Engine: {}", e);
+    }
+    
+    let variables_path = dirs_next::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("keymind")
+        .join("variables.json");
+    let variables = Arc::new(VariableEngine::new(variables_path));
+    if let Err(e) = variables.initialize().await {
+        tracing::error!("Failed to initialize Variable Engine: {}", e);
+    }
     let grammar = Arc::new(GrammarEngine::with_java_server(PathBuf::from(
         "app_resources/languagetool/languagetool-server.jar",
     ), 8081));
 
+    let prediction_path = dirs_next::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("keymind")
+        .join("trigrams.json");
     let prediction = Arc::new(
         PredictionEngine::new(
-            db_pool.clone(),
+            prediction_path,
             PathBuf::from("app_resources/models/gpt2-int8.onnx"),
         )
         .await?,
     );
 
-    // 4. Start Learning Engine Worker
+    // 3. Start Learning Engine Worker
+    let learning_path = dirs_next::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("keymind")
+        .join("learning.json");
     let (learning_tx, learning_rx) = mpsc::channel(1000);
-    let learning_engine = LearningEngine::new(db_pool.clone());
-    let _learning_task = LearningEngine::start(learning_engine.enabled.clone(), db_pool.clone(), learning_engine.privacy.clone(), learning_rx);
+    let learning_engine = Arc::new(LearningEngine::new(learning_path));
+    if let Err(e) = learning_engine.initialize().await {
+        tracing::error!("Failed to initialize Learning Engine: {}", e);
+    }
+    let _learning_task = learning_engine.start(learning_rx);
 
-    // 5. Initialize Typing Pipeline Controller
+    // 4. Initialize Typing Pipeline Controller
     let pipeline = Arc::new(TypingPipeline::new(
         autocorrect,
-        variables,
+        variables.clone(),
         grammar,
         prediction,
         learning_tx,
     ));
 
-    // 6. Start IPC Server Daemon
+    // 5. Start IPC Server Daemon
     #[cfg(windows)]
     let ipc_address = "127.0.0.1:9123";
     #[cfg(not(windows))]
     let ipc_address = "/tmp/keymind.sock";
 
-    let _ipc_task = start_ipc_server(db_pool.clone(), ipc_address, learning_engine.enabled.clone()).await?;
+    let _ipc_task = start_ipc_server(variables.clone(), learning_engine.clone(), ipc_address, learning_engine.enabled.clone()).await?;
     info!("KeyMind IPC Server daemon listening on {}", ipc_address);
 
     // 7. Start Windows / macOS Keyboard Interceptor

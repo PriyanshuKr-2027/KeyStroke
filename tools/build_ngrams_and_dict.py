@@ -55,9 +55,23 @@ able about above accept according account across act action activity actually ad
 """
 
 def generate_dict():
+    dict_path = os.path.join(DATA_DIR, "frequency_dictionary_en_82k.txt")
     words = {}
+
+    if os.path.exists(dict_path):
+        with open(dict_path, "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) >= 2:
+                    w = parts[0].lower()
+                    try:
+                        freq = int(parts[1])
+                        words[w] = freq
+                    except ValueError:
+                        pass
+
     for w, f in VOCAB_LIST:
-        words[w.lower()] = f
+        words[w.lower()] = max(words.get(w.lower(), 0), f)
     
     base_freq = 1000000
     for w in COMMON_WORDS.split():
@@ -66,8 +80,7 @@ def generate_dict():
             words[w_clean] = base_freq
             base_freq = max(1000, base_freq - 50)
             
-    # Write updated frequency dictionary
-    dict_path = os.path.join(DATA_DIR, "frequency_dictionary_en_82k.txt")
+    # Write merged frequency dictionary
     with open(dict_path, "w", encoding="utf-8") as f:
         for word, freq in sorted(words.items(), key=lambda x: x[1], reverse=True):
             f.write(f"{word} {freq}\n")
@@ -77,7 +90,7 @@ def generate_dict():
 def generate_ngrams(vocab_dict):
     # Sample bigram context weights for autocorrect context-aware re-ranking
     # Format: (prev_word, word) -> count
-    bigrams = [
+    raw_bigram_pairs = [
         ("going", "to"), ("want", "to"), ("need", "to"), ("have", "to"), ("used", "to"),
         ("able", "to"), ("trying", "to"), ("like", "to"), ("looking", "forward"),
         ("thank", "you"), ("how", "are"), ("good", "morning"), ("good", "afternoon"),
@@ -90,8 +103,56 @@ def generate_ngrams(vocab_dict):
         ("they", "were"), ("they", "have"), ("it", "is"), ("it", "was"),
         ("it", "has"), ("that", "is"), ("that", "was"), ("this", "is"),
         ("we", "are"), ("we", "were"), ("we", "have"), ("i", "am"),
-        ("i", "was"), ("i", "have"), ("i", "will"), ("i", "would")
+        ("i", "was"), ("i", "have"), ("i", "will"), ("i", "would"),
+        ("feel", "free"), ("make", "sure"), ("take", "care"), ("of", "course"),
+        ("don't", "know"), ("don't", "think"), ("don't", "have"), ("doesn't", "matter"),
+        ("at", "the"), ("in", "the"), ("on", "the"), ("to", "the"), ("for", "the"),
+        ("from", "the"), ("by", "the"), ("with", "the"), ("about", "the"), ("into", "the"),
+        ("through", "the"), ("during", "the"), ("under", "the"), ("over", "the"),
+        ("part", "of"), ("one", "of"), ("some", "of"), ("all", "of"), ("most", "of"),
+        ("end", "of"), ("top", "of"), ("side", "of"), ("kind", "of"), ("type", "of"),
+        ("sort", "of"), ("because", "of"), ("instead", "of"), ("ahead", "of"),
+        ("as", "soon"), ("as", "far"), ("as", "long"), ("as", "much"), ("as", "many"),
+        ("a", "lot"), ("a", "few"), ("a", "little"), ("a", "bit"), ("a", "number"),
+        ("right", "now"), ("even", "if"), ("even", "though"), ("first", "time"),
+        ("last", "night"), ("next", "week"), ("next", "month"), ("next", "year"),
+        ("last", "week"), ("last", "month"), ("last", "year"), ("every", "day"),
+        ("high", "school"), ("real", "estate"), ("social", "media"), ("credit", "card"),
+        ("united", "states"), ("new", "york"), ("san", "francisco"), ("los", "angeles"),
+        ("machine", "learning"), ("artificial", "intelligence"), ("software", "engineer"),
+        ("data", "science"), ("web", "site"), ("source", "code"), ("open", "source"),
+        ("operating", "system"), ("user", "interface"), ("mobile", "app"),
+        ("customer", "service"), ("human", "resources"), ("project", "management"),
+        ("financial", "report"), ("business", "plan"), ("target", "audience"),
+        ("best", "regards"), ("kind", "regards"), ("warm", "regards"), ("best", "wishes"),
+        ("sincerely", "yours"), ("yours", "truly"), ("hope", "all"), ("hope", "you"),
+        ("thanks", "for"), ("thanks", "again"), ("many", "thanks"),
+        ("would", "like"), ("would", "be"), ("would", "love"), ("would", "appreciate"),
+        ("could", "you"), ("could", "be"), ("could", "have"), ("should", "be"),
+        ("should", "have"), ("must", "be"), ("must", "have"), ("may", "be"),
+        ("might", "be"), ("shall", "we"), ("let's", "go"), ("let's", "do"),
+        ("please", "find"), ("please", "note"), ("please", "check"), ("please", "see"),
+        ("please", "reply"), ("please", "confirm"), ("please", "contact"),
+        ("let", "us"), ("let", "know"), ("get", "back"), ("look", "forward"),
+        ("reach", "out"), ("touch", "base"), ("keep", "in"), ("in", "touch"),
+        ("according", "to"), ("due", "to"), ("prior", "to"), ("relative", "to"),
+        ("similar", "to"), ("thanks", "to"), ("thanks", "in"), ("in", "advance"),
+        ("bear", "in"), ("keep", "mind"), ("in", "mind"), ("point", "of"),
+        ("in", "terms"), ("terms", "of"), ("in", "addition"), ("addition", "to"),
+        ("in", "fact"), ("in", "general"), ("in", "particular"), ("in", "case"),
+        ("in", "spite"), ("spite", "of"), ("regardless", "of"), ("on", "behalf"),
+        ("behalf", "of"), ("with", "regard"), ("regard", "to"), ("with", "respect"),
+        ("respect", "to"), ("as", "per"), ("per", "your"), ("per", "our"),
+        ("for", "example"), ("for", "instance"), ("such", "that"), ("so", "as"),
+        ("in", "summary"), ("in", "conclusion"), ("at", "least"), ("at", "most"),
+        ("at", "all"), ("at", "once"), ("at", "present"), ("at", "first"),
+        ("at", "last"), ("at", "any"), ("by", "far"),
+        ("by", "means"), ("by", "way"), ("on", "time"), ("in", "time"),
+        ("out", "of"), ("off", "the"), ("up", "to"), ("down", "to"),
+        ("away", "from"), ("close", "to"), ("next", "to"), ("far", "from"),
     ]
+
+    bigrams = raw_bigram_pairs
     
     # Save bigram bin file: count of entries (u32), then entries (len_w1, w1, len_w2, w2, weight_f32)
     bigram_path = os.path.join(DATA_DIR, "bigrams_en.bin")

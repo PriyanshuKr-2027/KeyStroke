@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
-use sqlx::{Pool, Sqlite};
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
-
-pub type SqlitePool = Pool<Sqlite>;
+use tokio::fs;
+use tokio::sync::RwLock;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VarType {
@@ -40,127 +41,95 @@ pub struct Variable {
     pub updated_at: i64,
 }
 
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct VariablesState {
+    pub variables: HashMap<String, Variable>,
+}
+
+#[derive(Clone)]
 pub struct DbHandler {
-    pool: Arc<SqlitePool>,
+    file_path: PathBuf,
+    state: Arc<RwLock<VariablesState>>,
 }
 
 impl DbHandler {
-    pub fn new(pool: Arc<SqlitePool>) -> Self {
-        Self { pool }
+    pub fn new(file_path: PathBuf) -> Self {
+        Self {
+            file_path,
+            state: Arc::new(RwLock::new(VariablesState::default())),
+        }
     }
 
-    pub async fn init_db(&self) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS variables (
-                key       TEXT PRIMARY KEY,
-                var_type  TEXT NOT NULL CHECK(var_type IN ('static','dynamic','ai')),
-                value     TEXT,
-                ai_prompt TEXT,
-                use_count INTEGER DEFAULT 0,
-                created_at INTEGER DEFAULT (unixepoch()),
-                updated_at INTEGER DEFAULT (unixepoch())
-            );",
-        )
-        .execute(self.pool.as_ref())
-        .await?;
-
+    pub async fn init_db(&self) -> Result<(), std::io::Error> {
+        if self.file_path.exists() {
+            let data = fs::read_to_string(&self.file_path).await?;
+            if let Ok(parsed) = serde_json::from_str(&data) {
+                *self.state.write().await = parsed;
+            }
+        } else {
+            self.save().await?;
+        }
         Ok(())
     }
 
-    pub async fn upsert(&self, v: Variable) -> Result<(), sqlx::Error> {
+    async fn save(&self) -> Result<(), std::io::Error> {
+        let state = self.state.read().await;
+        let data = serde_json::to_string_pretty(&*state)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        if let Some(parent) = self.file_path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+        fs::write(&self.file_path, data).await?;
+        Ok(())
+    }
+
+    pub async fn upsert(&self, mut v: Variable) -> Result<(), std::io::Error> {
         let key_clean = v.key.trim_start_matches('/').to_lowercase();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs() as i64;
+        
+        v.updated_at = now;
+        if v.created_at == 0 {
+            v.created_at = now;
+        }
 
-        sqlx::query(
-            "INSERT INTO variables (key, var_type, value, ai_prompt, use_count, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT(key) DO UPDATE SET
-             var_type = excluded.var_type,
-             value = excluded.value,
-             ai_prompt = excluded.ai_prompt,
-             use_count = excluded.use_count,
-             updated_at = excluded.updated_at",
-        )
-        .bind(&key_clean)
-        .bind(v.var_type.as_str())
-        .bind(v.value)
-        .bind(v.ai_prompt)
-        .bind(v.use_count)
-        .bind(now)
-        .bind(now)
-        .execute(self.pool.as_ref())
-        .await?;
-
+        self.state.write().await.variables.insert(key_clean, v);
+        self.save().await?;
         Ok(())
     }
 
-    pub async fn delete(&self, key: &str) -> Result<(), sqlx::Error> {
+    pub async fn delete(&self, key: &str) -> Result<(), std::io::Error> {
         let key_clean = key.trim_start_matches('/').to_lowercase();
-        sqlx::query("DELETE FROM variables WHERE key = ?")
-            .bind(&key_clean)
-            .execute(self.pool.as_ref())
-            .await?;
-
+        if self.state.write().await.variables.remove(&key_clean).is_some() {
+            self.save().await?;
+        }
         Ok(())
     }
 
-    pub async fn list_all(&self) -> Result<Vec<Variable>, sqlx::Error> {
-        let rows: Vec<(String, String, Option<String>, Option<String>, i64, i64, i64)> =
-            sqlx::query_as(
-                "SELECT key, var_type, value, ai_prompt, use_count, created_at, updated_at FROM variables",
-            )
-            .fetch_all(self.pool.as_ref())
-            .await?;
-
-        Ok(rows
-            .into_iter()
-            .map(
-                |(key, var_type, value, ai_prompt, use_count, created_at, updated_at)| Variable {
-                    key,
-                    var_type: VarType::from_str(&var_type),
-                    value,
-                    ai_prompt,
-                    use_count,
-                    created_at,
-                    updated_at,
-                },
-            )
-            .collect())
+    pub async fn list_all(&self) -> Result<Vec<Variable>, std::io::Error> {
+        let state = self.state.read().await;
+        let mut vars: Vec<Variable> = state.variables.values().cloned().collect();
+        // Sort to ensure stable output, optional but good
+        vars.sort_by_key(|v| v.key.clone());
+        Ok(vars)
     }
 
-    pub async fn get(&self, key: &str) -> Result<Option<Variable>, sqlx::Error> {
+    pub async fn get(&self, key: &str) -> Result<Option<Variable>, std::io::Error> {
         let key_clean = key.trim_start_matches('/').to_lowercase();
-        let row: Option<(String, String, Option<String>, Option<String>, i64, i64, i64)> =
-            sqlx::query_as(
-                "SELECT key, var_type, value, ai_prompt, use_count, created_at, updated_at FROM variables WHERE key = ?",
-            )
-            .bind(&key_clean)
-            .fetch_optional(self.pool.as_ref())
-            .await?;
-
-        Ok(row.map(
-            |(key, var_type, value, ai_prompt, use_count, created_at, updated_at)| Variable {
-                key,
-                var_type: VarType::from_str(&var_type),
-                value,
-                ai_prompt,
-                use_count,
-                created_at,
-                updated_at,
-            },
-        ))
+        let state = self.state.read().await;
+        Ok(state.variables.get(&key_clean).cloned())
     }
 
-    pub async fn increment_use_count(&self, key: &str) -> Result<(), sqlx::Error> {
+    pub async fn increment_use_count(&self, key: &str) -> Result<(), std::io::Error> {
         let key_clean = key.trim_start_matches('/').to_lowercase();
-        sqlx::query("UPDATE variables SET use_count = use_count + 1 WHERE key = ?")
-            .bind(&key_clean)
-            .execute(self.pool.as_ref())
-            .await?;
-
+        let mut state = self.state.write().await;
+        if let Some(v) = state.variables.get_mut(&key_clean) {
+            v.use_count += 1;
+        }
+        drop(state);
+        self.save().await?;
         Ok(())
     }
 }

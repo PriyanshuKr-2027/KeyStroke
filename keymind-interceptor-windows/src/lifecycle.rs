@@ -53,6 +53,8 @@ static mut HOOK_HANDLE: windows_sys::Win32::UI::WindowsAndMessaging::HHOOK = 0;
 static SENDER: parking_lot::Mutex<Option<mpsc::Sender<Event>>> = parking_lot::const_mutex(None);
 #[cfg(target_os = "windows")]
 static WORD_BUFFER: parking_lot::Mutex<String> = parking_lot::const_mutex(String::new());
+#[cfg(target_os = "windows")]
+static CONTEXT_BUFFER: parking_lot::Mutex<Vec<String>> = parking_lot::const_mutex(Vec::new());
 
 /// Global ON/OFF interceptor pause flag.
 /// When set to false, low_level_keyboard_proc ignores all keystrokes and passes them through.
@@ -119,13 +121,23 @@ unsafe extern "system" fn low_level_keyboard_proc(
                         if !buf.is_empty() {
                             let word = buf.clone();
                             buf.clear();
-                            drop(buf); // Release lock before trying sender
+                            drop(buf); // Release lock before context build
+
+                            let full_context = if let Some(mut ctx) = CONTEXT_BUFFER.try_lock() {
+                                ctx.push(word.clone());
+                                if ctx.len() > 15 {
+                                    ctx.remove(0);
+                                }
+                                ctx.join(" ")
+                            } else {
+                                word.clone()
+                            };
 
                             // Non-blocking try_send — never block in hook callback
                             if let Some(ref sender) = *SENDER.lock() {
                                 let _ = sender.try_send(Event::WordCompleted {
                                     word: word.clone(),
-                                    context: word,
+                                    context: full_context,
                                 });
                             }
                         }

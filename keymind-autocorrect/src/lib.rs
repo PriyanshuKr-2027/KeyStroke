@@ -5,16 +5,18 @@ pub mod learning;
 pub mod personal;
 pub mod predictor;
 pub mod symspell_layer;
+pub mod typo_map;
 
-use bigram::BigramModel;
-use db::{DbHandler, SqlitePool};
+use keymind_jamspell::JamSpellEngine;
+use db::DbHandler;
 use homophones::HomophoneResolver;
 use learning::LearnedCorrections;
 use personal::PersonalDictionary;
+pub use typo_map::ExplicitTypoMap;
 
 pub use predictor::TrigramPredictor;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::path::PathBuf;
 use symspell_layer::SymSpellEngine;
 
 /// Represents a proposed autocorrect suggestion.
@@ -32,40 +34,40 @@ pub struct AutocorrectEngine {
     learned_corrections: LearnedCorrections,
     homophone_resolver: HomophoneResolver,
     symspell_engine: SymSpellEngine,
-    bigram_model: BigramModel,
+    jamspell_engine: JamSpellEngine,
 }
 
 impl AutocorrectEngine {
-    /// Construct a new AutocorrectEngine connected to a SQLite connection pool.
-    pub fn new(db: Arc<SqlitePool>) -> Self {
+    /// Construct a new AutocorrectEngine with JSON store.
+    pub fn new(store_path: PathBuf) -> Self {
         Self {
-            db_handler: DbHandler::new(db),
+            db_handler: DbHandler::new(store_path),
             personal_dict: PersonalDictionary::new(HashSet::new()),
             learned_corrections: LearnedCorrections::new(HashMap::new()),
             homophone_resolver: HomophoneResolver::new(),
             symspell_engine: SymSpellEngine::new(),
-            bigram_model: BigramModel::new(),
+            jamspell_engine: JamSpellEngine::new(),
         }
     }
 
     /// Construct engine manually with pre-populated in-memory caches.
     pub fn with_caches(
-        db: Arc<SqlitePool>,
+        store_path: PathBuf,
         personal_words: HashSet<String>,
         learned_map: HashMap<String, String>,
     ) -> Self {
         Self {
-            db_handler: DbHandler::new(db),
+            db_handler: DbHandler::new(store_path),
             personal_dict: PersonalDictionary::new(personal_words),
             learned_corrections: LearnedCorrections::new(learned_map),
             homophone_resolver: HomophoneResolver::new(),
             symspell_engine: SymSpellEngine::new(),
-            bigram_model: BigramModel::new(),
+            jamspell_engine: JamSpellEngine::new(),
         }
     }
 
     /// Asynchronously initialize database tables and populate in-memory caches.
-    pub async fn initialize(&self) -> Result<(), sqlx::Error> {
+    pub async fn initialize(&self) -> Result<(), std::io::Error> {
         self.db_handler.init_db().await?;
 
         let personal = self.db_handler.load_personal_words().await?;
@@ -81,7 +83,7 @@ impl AutocorrectEngine {
         Ok(())
     }
 
-    /// Evaluates `word` in context across correction layers with Bigram Context Re-ranking.
+    /// Evaluates `word` in context across correction layers with JamSpell Context Re-ranking.
     pub fn check(&self, word: &str, context: &str) -> Option<Correction> {
         if word.trim().is_empty() {
             return None;
@@ -101,6 +103,15 @@ impl AutocorrectEngine {
             });
         }
 
+        // Layer 0.5 — High-Frequency Explicit Typo Map (O(1) instant resolution)
+        if let Some(explicit_to) = ExplicitTypoMap::get(word) {
+            return Some(Correction {
+                original: word.to_string(),
+                corrected: explicit_to.to_string(),
+                confidence: 0.99,
+            });
+        }
+
         // Layer 3 — Homophone Resolution via context pattern rules
         if let Some((homophone_to, confidence)) = self.homophone_resolver.resolve(word, context) {
             return Some(Correction {
@@ -110,19 +121,22 @@ impl AutocorrectEngine {
             });
         }
 
-        // Extract previous word from context
-        let prev_word = context.split_whitespace().last().unwrap_or("");
+        // Extract previous words from context
+        let words: Vec<&str> = context.split_whitespace().collect();
+        let prev1 = if words.len() >= 1 { words[words.len() - 1] } else { "" };
+        let prev2 = if words.len() >= 2 { words[words.len() - 2] } else { "" };
 
-        // Layer 2 — SymSpell Edit Distance with Bigram Context Re-ranking
+        // Layer 2 — SymSpell Edit Distance with JamSpell Context Re-ranking
         if let Some((suggested, base_confidence)) = self.symspell_engine.check(word) {
-            let mut final_confidence = base_confidence;
-
-            // Re-rank confidence if bigram context matches
-            if !prev_word.is_empty() {
-                if let Some(bg_score) = self.bigram_model.score(prev_word, &suggested) {
-                    final_confidence = (base_confidence * 0.6 + bg_score * 0.4).min(0.99);
-                }
-            }
+            // JamSpell Re-ranking (Bayesian Error + Trigram LM)
+            let jamspell_score = self.jamspell_engine.score_candidate(&suggested, word, prev1, prev2);
+            
+            // Normalize the log probability back into a confidence boost.
+            // Since it's negative log prob, higher (closer to 0) is better.
+            let jamspell_boost = (jamspell_score.max(-10.0) + 10.0) / 10.0;
+            
+            // Blend SymSpell structural confidence with JamSpell contextual confidence
+            let final_confidence = (base_confidence * 0.5 + jamspell_boost as f32 * 0.5).min(0.99);
 
             return Some(Correction {
                 original: word.to_string(),
@@ -138,7 +152,7 @@ impl AutocorrectEngine {
         self.personal_dict.insert(word);
 
         let word_owned = word.to_string();
-        let db_handler = DbHandler::new(Arc::clone(&self.db_handler.pool));
+        let db_handler = self.db_handler.clone();
 
         tokio::spawn(async move {
             if let Err(e) = db_handler.insert_personal_word(&word_owned).await {
@@ -150,7 +164,7 @@ impl AutocorrectEngine {
     pub fn record_user_correction(&self, from: &str, to: &str) {
         let from_owned = from.to_string();
         let to_owned = to.to_string();
-        let db_handler = DbHandler::new(Arc::clone(&self.db_handler.pool));
+        let db_handler = self.db_handler.clone();
         let learned_corrections = self.learned_corrections.clone();
 
         tokio::spawn(async move {

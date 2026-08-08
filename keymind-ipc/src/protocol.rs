@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct VariableDto {
     pub key: String,
     pub var_type: String,
@@ -14,7 +14,7 @@ pub struct VariableDto {
     pub use_count: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct DailyStatsDto {
     pub words_typed: i64,
     pub corrections_made: i64,
@@ -22,7 +22,7 @@ pub struct DailyStatsDto {
     pub ai_requests: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LearnedPhraseDto {
     pub id: String,
     pub phrase: String,

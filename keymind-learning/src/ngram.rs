@@ -2,7 +2,7 @@ use lazy_static::lazy_static;
 use std::collections::{HashSet, VecDeque};
 
 lazy_static! {
-    static font_stop_words: HashSet<&'static str> = {
+    static ref font_stop_words: HashSet<&'static str> = {
         let mut set = HashSet::new();
         let words = [
             "a", "an", "the", "and", "or", "but", "if", "then", "else", "when", "at", "by", "for",

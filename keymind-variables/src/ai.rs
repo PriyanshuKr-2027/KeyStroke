@@ -1,12 +1,12 @@
 use async_trait::async_trait;
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
 use std::time::Duration;
 use thiserror::Error;
-use tokio::time::timeout;
+use tracing::info;
 
 #[derive(Error, Debug)]
 pub enum AiError {

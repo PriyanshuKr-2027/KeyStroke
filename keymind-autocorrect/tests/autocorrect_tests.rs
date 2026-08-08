@@ -1,15 +1,8 @@
 use keymind_autocorrect::{AutocorrectEngine, Correction};
-use sqlx::sqlite::SqlitePoolOptions;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 async fn setup_test_engine() -> AutocorrectEngine {
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-
-    let engine = AutocorrectEngine::new(Arc::new(pool));
+    let tmp_path = std::env::temp_dir().join(format!("test_autocorrect_{}.json", std::time::UNIX_EPOCH.elapsed().unwrap().as_nanos()));
+    let engine = AutocorrectEngine::new(tmp_path);
     engine.initialize().await.unwrap();
     engine
 }
@@ -69,4 +62,54 @@ async fn test_single_character_bypass() {
     let engine = setup_test_engine().await;
     let result = engine.check("a", "is ");
     assert!(result.is_none());
+}
+
+#[tokio::test]
+async fn test_high_frequency_word_typo_corrections() {
+    let engine = setup_test_engine().await;
+
+    let test_cases = vec![
+        // User requested high-frequency words
+        ("teh", "the"),
+        ("hte", "the"),
+        ("hallo", "hello"),
+        ("helo", "hello"),
+        ("corect", "correct"),
+        ("woudl", "would"),
+        ("wuld", "would"),
+        ("coudl", "could"),
+        ("shoudl", "should"),
+        ("becuase", "because"),
+        ("definately", "definitely"),
+        ("seperate", "separate"),
+        ("recieve", "receive"),
+        ("beleive", "believe"),
+        ("tommorow", "tomorrow"),
+        ("buisness", "business"),
+        ("goverment", "government"),
+        ("enviroment", "environment"),
+        ("expierence", "experience"),
+        ("langauge", "language"),
+        ("truely", "truly"),
+        ("freind", "friend"),
+        ("untill", "until"),
+        ("welcom", "welcome"),
+        ("pleas", "please"),
+        ("thx", "thanks"),
+    ];
+
+    for (typo, expected_correction) in test_cases {
+        let result = engine.check(typo, "this is ");
+        assert!(
+            result.is_some(),
+            "Expected autocorrect result for typo '{}', but got None",
+            typo
+        );
+        let correction = result.unwrap();
+        assert_eq!(
+            correction.corrected, expected_correction,
+            "Expected typo '{}' to be corrected to '{}', but got '{}'",
+            typo, expected_correction, correction.corrected
+        );
+    }
 }

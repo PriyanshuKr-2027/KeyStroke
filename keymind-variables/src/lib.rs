@@ -3,19 +3,20 @@ pub mod db;
 pub mod dynamic;
 pub mod trigger;
 
-use ai::{get_default_ai_prompt, AiError, GroqClient, GroqClientTrait};
-use db::{DbHandler, SqlitePool, VarType, Variable};
+use ai::{get_ai_system_prompt, AiError, GroqClient, GroqClientTrait};
+use db::{DbHandler, VarType, Variable};
 use dynamic::DynamicResolver;
 use parking_lot::RwLock;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use thiserror::Error;
 use trigger::{TriggerAction, TriggerDetector};
 
 #[derive(Error, Debug)]
 pub enum VariableError {
-    #[error("Database error: {0}")]
-    Db(#[from] sqlx::Error),
+    #[error("Database IO error: {0}")]
+    Db(#[from] std::io::Error),
     #[error("AI error: {0}")]
     Ai(#[from] AiError),
     #[error("Variable not found: {0}")]
@@ -49,21 +50,24 @@ pub struct VariableEngine {
 }
 
 impl VariableEngine {
-    pub fn new(db: Arc<SqlitePool>) -> Self {
-        let ai_client = Arc::new(GroqClient::new().unwrap_or_else(|_| {
-            // Fallback client if API key missing at creation
-            struct NoOpClient;
-            #[async_trait::async_trait]
-            impl GroqClientTrait for NoOpClient {
-                async fn generate(&self, _: &str, _: &str) -> Result<String, AiError> {
-                    Err(AiError::MissingApiKey)
+    pub fn new(store_path: PathBuf) -> Self {
+        let ai_client: Arc<dyn GroqClientTrait> = match GroqClient::new() {
+            Ok(c) => Arc::new(c),
+            Err(_) => {
+                // Fallback client if API key missing at creation
+                struct NoOpClient;
+                #[async_trait::async_trait]
+                impl GroqClientTrait for NoOpClient {
+                    async fn generate(&self, _: &str, _: &str) -> Result<String, AiError> {
+                        Err(AiError::MissingApiKey)
+                    }
                 }
+                Arc::new(NoOpClient)
             }
-            NoOpClient
-        }));
+        };
 
         Self {
-            db_handler: DbHandler::new(db),
+            db_handler: DbHandler::new(store_path),
             static_cache: RwLock::new(HashMap::new()),
             trigger_detector: RwLock::new(TriggerDetector::new()),
             ai_client,
@@ -71,9 +75,9 @@ impl VariableEngine {
     }
 
     /// Construct engine with custom/mock Groq AI client.
-    pub fn with_ai_client(db: Arc<SqlitePool>, client: Arc<dyn GroqClientTrait>) -> Self {
+    pub fn with_ai_client(store_path: PathBuf, client: Arc<dyn GroqClientTrait>) -> Self {
         Self {
-            db_handler: DbHandler::new(db),
+            db_handler: DbHandler::new(store_path),
             static_cache: RwLock::new(HashMap::new()),
             trigger_detector: RwLock::new(TriggerDetector::new()),
             ai_client: client,
@@ -121,7 +125,7 @@ impl VariableEngine {
             }
 
             // 3. AI variable check
-            if let Some(prompt) = get_default_ai_prompt(&key_lower) {
+            if let Some(prompt) = Some(get_ai_system_prompt(&key_lower)) {
                 return Some(ExpansionTask::Ai {
                     key: key_lower,
                     backspace_count,
@@ -142,16 +146,12 @@ impl VariableEngine {
     /// Asynchronous resolution for AI variables via Groq client.
     pub async fn resolve_ai(&self, key: &str, clipboard: &str) -> Result<String, VariableError> {
         let key_clean = key.trim_start_matches('/').to_lowercase();
-        let prompt = match get_default_ai_prompt(&key_clean) {
+        let prompt = match Some(get_ai_system_prompt(&key_clean)) {
             Some(p) => p.to_string(),
             None => {
-                sqlx::query_scalar::<_, Option<String>>("SELECT ai_prompt FROM variables WHERE key = ?")
-                    .bind(&key_clean)
-                    .fetch_optional(&*self.db_handler.pool)
-                    .await
-                    .ok()
-                    .flatten()
-                    .flatten()
+                let var_opt = self.db_handler.get(&key_clean).await?;
+                var_opt
+                    .and_then(|v| v.ai_prompt)
                     .ok_or_else(|| VariableError::NotFound(key.to_string()))?
             }
         };

@@ -3,9 +3,9 @@ use regex::Regex;
 use std::collections::HashSet;
 
 lazy_static! {
-    static font_cc_regex: Regex =
+    static ref font_cc_regex: Regex =
         Regex::new(r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b").unwrap();
-    static font_otp_regex: Regex = Regex::new(r"^\d{4,8}$").unwrap();
+    static ref font_otp_regex: Regex = Regex::new(r"^\d{4,8}$").unwrap();
 }
 
 pub struct PrivacyFilter {

@@ -6,7 +6,6 @@ description = "Variable resolution engine for keymind typing assistant (static, 
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio"] }
 chrono = "0.4"
 uuid = { version = "1.8", features = ["v4"] }
 arboard = "3.4"
@@ -15,7 +14,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 dotenvy = "0.15"
 dirs-next = "2.0"
-tokio = { version = "1.38", features = ["sync", "rt-multi-thread", "macros", "time"] }
+tokio = { version = "1.38", features = ["sync", "rt-multi-thread", "macros", "time", "fs"] }
 thiserror = "1.0"
 parking_lot = "0.12"
 tracing = "0.1"

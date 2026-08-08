@@ -1,19 +1,14 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use keymind_autocorrect::AutocorrectEngine;
-use sqlx::sqlite::SqlitePoolOptions;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::path::PathBuf;
 
 fn bench_autocorrect_pipeline(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
 
     let engine = rt.block_on(async {
-        let pool = SqlitePoolOptions::new()
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
-
-        let engine = AutocorrectEngine::new(Arc::new(pool));
+        let tmp_path = std::env::temp_dir().join(format!("test_autocorrect_bench_{}.json", std::time::UNIX_EPOCH.elapsed().unwrap().as_nanos()));
+        let engine = AutocorrectEngine::new(tmp_path);
         engine.initialize().await.unwrap();
         engine.add_to_personal_dict("customkeyword");
         engine.record_user_correction_in_memory("teh", "the", 3);

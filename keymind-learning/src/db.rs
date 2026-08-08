@@ -1,5 +1,8 @@
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use sqlx::{Pool, Sqlite};
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
@@ -11,154 +14,169 @@ pub struct LearnedPhrase {
     pub is_pinned: bool,
 }
 
-pub async fn init_learning_tables(db: &Pool<Sqlite>) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS phrase_candidates (
-            phrase TEXT PRIMARY KEY,
-            frequency INTEGER DEFAULT 1,
-            first_seen INTEGER DEFAULT (unixepoch()),
-            last_seen INTEGER DEFAULT (unixepoch())
-        );
-        CREATE TABLE IF NOT EXISTS learned_memory (
-            id TEXT PRIMARY KEY,
-            phrase TEXT UNIQUE NOT NULL,
-            frequency INTEGER DEFAULT 1,
-            is_pinned INTEGER DEFAULT 0
-        );
-        CREATE TABLE IF NOT EXISTS app_blocklist (
-            app_id TEXT PRIMARY KEY
-        );
-        "#,
-    )
-    .execute(db)
-    .await?;
-
-    Ok(())
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Candidate {
+    pub frequency: i32,
+    pub first_seen: i64,
+    pub last_seen: i64,
 }
 
-pub async fn upsert_candidate(
-    db: &Pool<Sqlite>,
-    phrase: &str,
-) -> Result<Option<LearnedPhrase>, sqlx::Error> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct LearningState {
+    pub candidates: HashMap<String, Candidate>,
+    pub learned: HashMap<String, LearnedPhrase>,
+    pub blocklist: HashSet<String>,
+}
 
-    // Upsert candidate count
-    sqlx::query(
-        r#"
-        INSERT INTO phrase_candidates (phrase, frequency, first_seen, last_seen)
-        VALUES (?1, 1, ?2, ?2)
-        ON CONFLICT(phrase) DO UPDATE SET
-            frequency = frequency + 1,
-            last_seen = ?2;
-        "#,
-    )
-    .bind(phrase)
-    .bind(now)
-    .execute(db)
-    .await?;
+#[derive(Clone)]
+pub struct DbHandler {
+    store_path: PathBuf,
+    state: Arc<RwLock<LearningState>>,
+}
 
-    // Check promotion threshold
-    let row = sqlx::query_as::<_, (i32, i64)>(
-        "SELECT frequency, last_seen FROM phrase_candidates WHERE phrase = ?1",
-    )
-    .bind(phrase)
-    .fetch_optional(db)
-    .await?;
-
-    if let Some((freq, last_seen)) = row {
-        let seven_days_ago = now - (7 * 86400);
-        let should_promote = (freq >= 3 && last_seen >= seven_days_ago) || freq >= 10;
-
-        if should_promote {
-            let id = Uuid::new_v4().to_string();
-            sqlx::query(
-                r#"
-                INSERT INTO learned_memory (id, phrase, frequency, is_pinned)
-                VALUES (?1, ?2, ?3, 0)
-                ON CONFLICT(phrase) DO UPDATE SET frequency = ?3;
-                "#,
-            )
-            .bind(&id)
-            .bind(phrase)
-            .bind(freq)
-            .execute(db)
-            .await?;
-
-            return Ok(Some(LearnedPhrase {
-                id,
-                phrase: phrase.to_string(),
-                frequency: freq,
-                is_pinned: false,
-            }));
+impl DbHandler {
+    pub fn new(store_path: PathBuf) -> Self {
+        Self {
+            store_path,
+            state: Arc::new(RwLock::new(LearningState::default())),
         }
     }
 
-    Ok(None)
-}
+    pub async fn init_db(&self) -> Result<(), std::io::Error> {
+        if self.store_path.exists() {
+            let data = tokio::fs::read_to_string(&self.store_path).await?;
+            if let Ok(parsed) = serde_json::from_str(&data) {
+                *self.state.write() = parsed;
+            }
+        }
+        Ok(())
+    }
 
-pub async fn prune_old_candidates(db: &Pool<Sqlite>) -> Result<u64, sqlx::Error> {
-    let thirty_days_ago = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64
-        - (30 * 86400);
+    fn save_state(&self) {
+        let state = self.state.read().clone();
+        let path = self.store_path.clone();
+        tokio::spawn(async move {
+            if let Ok(json) = serde_json::to_string_pretty(&state) {
+                let _ = tokio::fs::write(path, json).await;
+            }
+        });
+    }
 
-    let res = sqlx::query(
-        "DELETE FROM phrase_candidates WHERE last_seen < ?1 AND frequency < 2",
-    )
-    .bind(thirty_days_ago)
-    .execute(db)
-    .await?;
+    pub async fn upsert_candidate(&self, phrase: &str) -> Result<Option<LearnedPhrase>, std::io::Error> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
 
-    Ok(res.rows_affected())
-}
+        let mut promoted = None;
 
-pub async fn get_learned_phrases(db: &Pool<Sqlite>) -> Result<Vec<LearnedPhrase>, sqlx::Error> {
-    let rows = sqlx::query_as::<_, (String, String, i32, i32)>(
-        "SELECT id, phrase, frequency, is_pinned FROM learned_memory ORDER BY is_pinned DESC, frequency DESC",
-    )
-    .fetch_all(db)
-    .await?;
+        {
+            let mut state = self.state.write();
+            
+            let cand = state.candidates.entry(phrase.to_string()).or_insert(Candidate {
+                frequency: 0,
+                first_seen: now,
+                last_seen: now,
+            });
+            cand.frequency += 1;
+            cand.last_seen = now;
 
-    Ok(rows
-        .into_iter()
-        .map(|(id, phrase, frequency, is_pinned)| LearnedPhrase {
-            id,
-            phrase,
-            frequency,
-            is_pinned: is_pinned != 0,
-        })
-        .collect())
-}
+            let freq = cand.frequency;
+            let last_seen = cand.last_seen;
+            let seven_days_ago = now - (7 * 86400);
 
-pub async fn pin_phrase(id: &str, db: &Pool<Sqlite>) -> Result<(), sqlx::Error> {
-    sqlx::query("UPDATE learned_memory SET is_pinned = 1 WHERE id = ?1")
-        .bind(id)
-        .execute(db)
-        .await?;
-    Ok(())
-}
+            if (freq >= 3 && last_seen >= seven_days_ago) || freq >= 10 {
+                // Promote
+                let id = Uuid::new_v4().to_string();
+                let phrase_owned = phrase.to_string();
+                
+                // If it already exists in learned, just update freq
+                if let Some((_, existing)) = state.learned.iter_mut().find(|(_, p)| p.phrase == phrase_owned) {
+                    existing.frequency = freq;
+                } else {
+                    let new_learned = LearnedPhrase {
+                        id: id.clone(),
+                        phrase: phrase_owned.clone(),
+                        frequency: freq,
+                        is_pinned: false,
+                    };
+                    state.learned.insert(id, new_learned.clone());
+                    promoted = Some(new_learned);
+                }
+            }
+        }
 
-pub async fn delete_phrase(id: &str, db: &Pool<Sqlite>) -> Result<(), sqlx::Error> {
-    sqlx::query("DELETE FROM learned_memory WHERE id = ?1")
-        .bind(id)
-        .execute(db)
-        .await?;
-    Ok(())
-}
+        self.save_state();
+        Ok(promoted)
+    }
 
-pub async fn ignore_phrase(id: &str, db: &Pool<Sqlite>) -> Result<(), sqlx::Error> {
-    delete_phrase(id, db).await
-}
+    pub async fn prune_old_candidates(&self) -> Result<u64, std::io::Error> {
+        let thirty_days_ago = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+            - (30 * 86400);
 
-pub async fn add_app_to_blocklist(app_id: &str, db: &Pool<Sqlite>) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT OR IGNORE INTO app_blocklist (app_id) VALUES (?1)")
-        .bind(app_id)
-        .execute(db)
-        .await?;
-    Ok(())
+        let removed: u64;
+        {
+            let mut state = self.state.write();
+            let keys_to_remove: Vec<String> = state.candidates.iter()
+                .filter(|(_, c)| c.last_seen < thirty_days_ago && c.frequency < 2)
+                .map(|(k, _)| k.clone())
+                .collect();
+
+            for k in &keys_to_remove {
+                state.candidates.remove(k);
+            }
+            removed = keys_to_remove.len() as u64;
+        }
+
+        if removed > 0 {
+            self.save_state();
+        }
+
+        Ok(removed)
+    }
+
+    pub async fn get_learned_phrases(&self) -> Result<Vec<LearnedPhrase>, std::io::Error> {
+        let state = self.state.read();
+        let mut phrases: Vec<_> = state.learned.values().cloned().collect();
+        phrases.sort_by(|a, b| {
+            b.is_pinned.cmp(&a.is_pinned).then(b.frequency.cmp(&a.frequency))
+        });
+        Ok(phrases)
+    }
+
+    pub async fn pin_phrase(&self, id: &str) -> Result<(), std::io::Error> {
+        {
+            let mut state = self.state.write();
+            if let Some(phrase) = state.learned.get_mut(id) {
+                phrase.is_pinned = true;
+            }
+        }
+        self.save_state();
+        Ok(())
+    }
+
+    pub async fn delete_phrase(&self, id: &str) -> Result<(), std::io::Error> {
+        {
+            let mut state = self.state.write();
+            state.learned.remove(id);
+        }
+        self.save_state();
+        Ok(())
+    }
+
+    pub async fn ignore_phrase(&self, id: &str) -> Result<(), std::io::Error> {
+        self.delete_phrase(id).await
+    }
+
+    pub async fn add_app_to_blocklist(&self, app_id: &str) -> Result<(), std::io::Error> {
+        {
+            let mut state = self.state.write();
+            state.blocklist.insert(app_id.to_string());
+        }
+        self.save_state();
+        Ok(())
+    }
 }

@@ -6,12 +6,12 @@ description = "SQLite migrations and Unix Domain Socket IPC server for KeyMind t
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio", "migrate"] }
-tokio = { version = "1.38", features = ["sync", "rt-multi-thread", "macros", "net", "io-util", "time", "fs"] }
+keymind-variables = { path = "../keymind-variables" }
+keymind-learning = { path = "../keymind-learning" }
+tokio = { version = "1.38", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-dirs-next = "2.0"
-thiserror = "1.0"
+chrono = "0.4"
 tracing = "0.1"
 async-trait = "0.1"
 

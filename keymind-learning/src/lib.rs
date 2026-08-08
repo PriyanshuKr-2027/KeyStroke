@@ -2,17 +2,14 @@ pub mod db;
 pub mod ngram;
 pub mod privacy;
 
-pub use db::{
-    add_app_to_blocklist, delete_phrase, get_learned_phrases, ignore_phrase, init_learning_tables,
-    pin_phrase, LearnedPhrase,
-};
+pub use db::{DbHandler, LearnedPhrase};
 pub use ngram::{CandidatePhrase, NgramExtractor};
 pub use privacy::PrivacyFilter;
 
 use parking_lot::RwLock;
-use sqlx::SqlitePool;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::path::PathBuf;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::info;
@@ -29,19 +26,25 @@ pub enum LearningEvent {
     PhraseLearned(LearnedPhrase),
 }
 
+#[derive(Clone)]
 pub struct LearningEngine {
-    db: Arc<SqlitePool>,
+    pub db: DbHandler,
     privacy: Arc<RwLock<PrivacyFilter>>,
     pub enabled: Arc<AtomicBool>,
 }
 
 impl LearningEngine {
-    pub fn new(db: Arc<SqlitePool>) -> Self {
+    pub fn new(store_path: PathBuf) -> Self {
         Self {
-            db,
+            db: DbHandler::new(store_path),
             privacy: Arc::new(RwLock::new(PrivacyFilter::new())),
             enabled: Arc::new(AtomicBool::new(true)),
         }
+    }
+
+    pub async fn initialize(&self) -> Result<(), std::io::Error> {
+        self.db.init_db().await?;
+        Ok(())
     }
 
     pub fn toggle_learning(&self, enabled: bool) {
@@ -49,13 +52,14 @@ impl LearningEngine {
     }
 
     pub fn start(
-        enabled: Arc<AtomicBool>,
-        db: Arc<SqlitePool>,
-        privacy: Arc<RwLock<PrivacyFilter>>,
+        &self,
         mut rx: mpsc::Receiver<TypingEvent>,
     ) -> JoinHandle<()> {
+        let enabled = self.enabled.clone();
+        let db = self.db.clone();
+        let privacy = self.privacy.clone();
+
         tokio::spawn(async move {
-            let _ = init_learning_tables(&db).await;
             let mut extractor = NgramExtractor::default();
 
             while let Some(evt) = rx.recv().await {
@@ -73,7 +77,7 @@ impl LearningEngine {
                     let candidates = extractor.push_word(word);
                     for candidate in candidates {
                         if let Ok(Some(learned)) =
-                            db::upsert_candidate(&db, &candidate.display_text).await
+                            db.upsert_candidate(&candidate.display_text).await
                         {
                             info!("Phrase promoted to learned memory: {}", learned.phrase);
                         }

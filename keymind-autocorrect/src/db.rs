@@ -1,105 +1,116 @@
-use sqlx::{Pool, Sqlite};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::fs;
+use tokio::sync::RwLock;
 
-pub type SqlitePool = Pool<Sqlite>;
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct AutocorrectState {
+    pub personal_words: HashSet<String>,
+    pub corrections: HashMap<String, CorrectionData>,
+}
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CorrectionData {
+    pub count: i64,
+    pub last_seen: i64,
+}
+
+#[derive(Clone)]
 pub struct DbHandler {
-    pub pool: Arc<SqlitePool>,
+    file_path: PathBuf,
+    state: Arc<RwLock<AutocorrectState>>,
 }
 
 impl DbHandler {
-    pub fn new(pool: Arc<SqlitePool>) -> Self {
-        Self { pool }
+    pub fn new(file_path: PathBuf) -> Self {
+        Self {
+            file_path,
+            state: Arc::new(RwLock::new(AutocorrectState::default())),
+        }
     }
 
-    /// Initialize SQLite database tables.
-    pub async fn init_db(&self) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS personal_words (
-                word TEXT PRIMARY KEY
-            );",
-        )
-        .execute(self.pool.as_ref())
-        .await?;
+    /// Initialize JSON flat-file storage
+    pub async fn init_db(&self) -> Result<(), std::io::Error> {
+        if self.file_path.exists() {
+            let data = fs::read_to_string(&self.file_path).await?;
+            if let Ok(parsed) = serde_json::from_str(&data) {
+                *self.state.write().await = parsed;
+            }
+        } else {
+            self.save().await?;
+        }
+        Ok(())
+    }
 
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS corrections (
-                from_word TEXT NOT NULL,
-                to_word TEXT NOT NULL,
-                count INTEGER NOT NULL DEFAULT 1,
-                last_seen INTEGER NOT NULL,
-                PRIMARY KEY (from_word, to_word)
-            );",
-        )
-        .execute(self.pool.as_ref())
-        .await?;
-
+    async fn save(&self) -> Result<(), std::io::Error> {
+        let state = self.state.read().await;
+        let data = serde_json::to_string_pretty(&*state)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        if let Some(parent) = self.file_path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+        fs::write(&self.file_path, data).await?;
         Ok(())
     }
 
     /// Load all personal words into a HashSet.
-    pub async fn load_personal_words(&self) -> Result<HashSet<String>, sqlx::Error> {
-        let rows: Vec<(String,)> = sqlx::query_as("SELECT word FROM personal_words")
-            .fetch_all(self.pool.as_ref())
-            .await?;
-
-        Ok(rows.into_iter().map(|(w,)| w.to_lowercase()).collect())
+    pub async fn load_personal_words(&self) -> Result<HashSet<String>, std::io::Error> {
+        let state = self.state.read().await;
+        Ok(state.personal_words.iter().map(|w| w.to_lowercase()).collect())
     }
 
     /// Load user learned corrections where count >= 3 into a HashMap (from_word -> to_word).
-    pub async fn load_learned_corrections(&self) -> Result<HashMap<String, String>, sqlx::Error> {
-        let rows: Vec<(String, String)> =
-            sqlx::query_as("SELECT from_word, to_word FROM corrections WHERE count >= 3")
-                .fetch_all(self.pool.as_ref())
-                .await?;
-
-        Ok(rows
-            .into_iter()
-            .map(|(from, to)| (from.to_lowercase(), to))
-            .collect())
+    pub async fn load_learned_corrections(&self) -> Result<HashMap<String, String>, std::io::Error> {
+        let state = self.state.read().await;
+        let mut map = HashMap::new();
+        for (from, to_data) in &state.corrections {
+            if to_data.count >= 3 {
+                // Key format is expected to be "from:to", but existing sqlx db had two columns.
+                // Since this is key-value, we'll store key as "from_word|to_word"
+                let parts: Vec<&str> = from.split('|').collect();
+                if parts.len() == 2 {
+                    map.insert(parts[0].to_lowercase(), parts[1].to_string());
+                }
+            }
+        }
+        Ok(map)
     }
 
     /// Insert or ignore word into personal_words table.
-    pub async fn insert_personal_word(&self, word: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("INSERT OR IGNORE INTO personal_words (word) VALUES (?)")
-            .bind(word.to_lowercase())
-            .execute(self.pool.as_ref())
-            .await?;
-
+    pub async fn insert_personal_word(&self, word: &str) -> Result<(), std::io::Error> {
+        let word_clean = word.to_lowercase();
+        let mut state = self.state.write().await;
+        if state.personal_words.insert(word_clean) {
+            drop(state);
+            self.save().await?;
+        }
         Ok(())
     }
 
     /// Upsert user correction and return new count.
-    pub async fn record_correction(&self, from: &str, to: &str) -> Result<i64, sqlx::Error> {
+    pub async fn record_correction(&self, from: &str, to: &str) -> Result<i64, std::io::Error> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs() as i64;
 
-        let from_lower = from.to_lowercase();
-
-        sqlx::query(
-            "INSERT INTO corrections (from_word, to_word, count, last_seen)
-             VALUES (?, ?, 1, ?)
-             ON CONFLICT(from_word, to_word) DO UPDATE SET
-             count = count + 1,
-             last_seen = excluded.last_seen",
-        )
-        .bind(&from_lower)
-        .bind(to)
-        .bind(now)
-        .execute(self.pool.as_ref())
-        .await?;
-
-        let count: (i64,) = sqlx::query_as(
-            "SELECT count FROM corrections WHERE from_word = ? AND to_word = ?",
-        )
-        .bind(&from_lower)
-        .bind(to)
-        .fetch_one(self.pool.as_ref())
-        .await?;
-
-        Ok(count.0)
+        let key = format!("{}|{}", from.to_lowercase(), to);
+        
+        let mut state = self.state.write().await;
+        let entry = state.corrections.entry(key).or_insert(CorrectionData {
+            count: 0,
+            last_seen: 0,
+        });
+        
+        entry.count += 1;
+        entry.last_seen = now;
+        
+        let new_count = entry.count;
+        drop(state);
+        self.save().await?;
+        
+        Ok(new_count)
     }
 }

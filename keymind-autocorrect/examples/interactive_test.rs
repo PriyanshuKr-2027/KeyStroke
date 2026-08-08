@@ -1,6 +1,4 @@
 use keymind_autocorrect::AutocorrectEngine;
-use sqlx::sqlite::SqlitePoolOptions;
-use std::sync::Arc;
 
 #[tokio::main]
 async fn main() {
@@ -8,12 +6,8 @@ async fn main() {
     println!(" KeyMind Autocorrect & Engine Real-Time Test");
     println!("==================================================================\n");
 
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .expect("Failed to create in-memory SQLite pool");
-
-    let engine = AutocorrectEngine::new(Arc::new(pool));
+    let tmp_path = std::env::temp_dir().join("interactive_test_autocorrect.json");
+    let engine = AutocorrectEngine::new(tmp_path);
     engine
         .initialize()
         .await

@@ -3,7 +3,6 @@ use keymind_grammar::GrammarEngine;
 use keymind_learning::{LearningEngine, TypingEvent};
 use keymind_prediction::PredictionEngine;
 use keymind_variables::VariableEngine;
-use sqlx::SqlitePool;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::info;

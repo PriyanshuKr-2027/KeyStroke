@@ -947,7 +947,22 @@ fn main() {
                                             .unwrap_or_default();
                                         expanded = expanded.replace("{clipboard}", &clip_text);
                                     }
-                                    injector.inject_text(&expanded);
+                                    
+                                    // Fast and reliable text injection via clipboard paste (Ctrl+V)
+                                    if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                                        let backup = clipboard.get_text().unwrap_or_default();
+                                        if clipboard.set_text(expanded.clone()).is_ok() {
+                                            injector.simulate_paste();
+                                            // Allow OS to process Ctrl+V before restoring clipboard
+                                            std::thread::sleep(std::time::Duration::from_millis(50));
+                                            let _ = clipboard.set_text(backup);
+                                        } else {
+                                            injector.inject_text(&expanded);
+                                        }
+                                    } else {
+                                        injector.inject_text(&expanded);
+                                    }
+                                    
                                     // Bug 3 fix: Clear buffer so next word starts fresh.
                                     // Without this, backspace+retype after a variable
                                     // expansion would not re-trigger the substitution.
@@ -964,7 +979,8 @@ fn main() {
                                         let sym = get_symspell();
                                         let bigram = get_bigram_model();
                                         if let Some((suggested, base_conf)) = sym.check(&word) {
-                                            let prev_word = context.split_whitespace().last().unwrap_or("");
+                                            let words: Vec<&str> = context.split_whitespace().collect();
+                                            let prev_word = if words.len() >= 2 { words[words.len() - 2] } else { "" };
                                             let mut final_conf = base_conf;
 
                                             if !prev_word.is_empty() {
@@ -975,7 +991,9 @@ fn main() {
 
                                             if final_conf >= 0.70 {
                                                 let injector = keymind_interceptor_windows::TextInjector::new();
-                                                injector.send_backspaces(word.len());
+                                                // CRITICAL FIX: Erase typed word PLUS trailing delimiter (space/punct)
+                                                // passed through by the OS hook, preventing the doubled initial letter bug.
+                                                injector.send_backspaces(word.len() + 1);
                                                 injector.inject_text(&suggested);
                                                 // Bug 3 fix: Clear buffer so fresh typing after this
                                                 // correction is treated as a new word.

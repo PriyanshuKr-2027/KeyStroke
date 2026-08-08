@@ -75,8 +75,7 @@ fn is_qwerty_adjacent(c1: char, c2: char) -> bool {
     }
 }
 
-/// Returns true if typed and candidate differ by exactly one QWERTY-adjacent
-/// substitution (equal-length strings only).
+/// Returns true if typed and candidate differ by an adjacent substitution OR transposition (equal-length strings only).
 fn is_qwerty_typo(typed: &str, candidate: &str) -> bool {
     let t: Vec<char> = typed.chars().collect();
     let c: Vec<char> = candidate.chars().collect();
@@ -85,19 +84,26 @@ fn is_qwerty_typo(typed: &str, candidate: &str) -> bool {
         return false;
     }
 
-    let mut diff_count = 0;
-    let mut t_diff = ' ';
-    let mut c_diff = ' ';
-
-    for (a, b) in t.iter().zip(c.iter()) {
+    let mut diff_indices = Vec::new();
+    for (i, (a, b)) in t.iter().zip(c.iter()).enumerate() {
         if a != b {
-            diff_count += 1;
-            t_diff = *a;
-            c_diff = *b;
+            diff_indices.push(i);
         }
     }
 
-    diff_count == 1 && is_qwerty_adjacent(t_diff, c_diff)
+    if diff_indices.len() == 1 {
+        let idx = diff_indices[0];
+        return is_qwerty_adjacent(t[idx], c[idx]);
+    } else if diff_indices.len() == 2 {
+        let i1 = diff_indices[0];
+        let i2 = diff_indices[1];
+        // Adjacent transposition (e.g. 'e','h' -> 'h','e')
+        if i2 == i1 + 1 && t[i1] == c[i2] && t[i2] == c[i1] {
+            return true;
+        }
+    }
+
+    false
 }
 
 // ---------------------------------------------------------------------------
@@ -116,17 +122,11 @@ impl Default for SymSpellEngine {
 
 impl SymSpellEngine {
     pub fn new() -> Self {
-        // FIX: max_dictionary_edit_distance(1) instead of (2).
-        //
-        // wolfgarbe (algorithm author) recommends distance=2 for *batch* spellcheck
-        // but distance=1 for *real-time typing autocorrect* where false positives
-        // (e.g. "issue" → "tissue") must be minimised.
-        //
-        // Distance=2 pre-computes all 2-edit neighbours in the delete index, which
-        // means "issue" (distance 2 from "tissue") would be considered as a candidate.
-        // Distance=1 closes that door entirely.
+        // Edit distance 2 allows catching real-world English typos such as
+        // "woudl" -> "would", "recieve" -> "receive", "definately" -> "definitely",
+        // "seperate" -> "separate", "trmperature" -> "temperature".
         let mut symspell: SymSpell<AsciiStringStrategy> = SymSpellBuilder::default()
-            .max_dictionary_edit_distance(1)
+            .max_dictionary_edit_distance(2)
             .prefix_length(7)
             .build()
             .unwrap();
@@ -141,82 +141,116 @@ impl SymSpellEngine {
         Self { symspell }
     }
 
-    /// Three-layer autocorrect check:
+    /// Multi-layer autocorrect check with distance 2 support:
     ///
-    /// **Layer 0 — Google-10k whitelist (O(1) hash lookup)**
-    /// The 10,000 most common English words by Google n-gram frequency are
-    /// embedded as a static `HashSet`. If the typed word is in this set it is
-    /// _always_ passed through unchanged, no matter what SymSpell would suggest.
-    /// This single gate prevents every "issue → tissue", "grammar → gamer" class
-    /// of false positive where a common word is mangled because a rarer-but-higher-
-    /// frequency-in-the-82k-list word exists at edit distance 1.
+    /// **Layer 0 — Google-10k whitelist**
+    /// Highly frequent common words are passed through unchanged unless they are
+    /// obvious typos.
     ///
     /// **Layer 1 — Short-word gate**
-    /// Words ≤ 3 characters are skipped (is, in, at, go, ok, the).
+    /// Words ≤ 3 characters are skipped.
     ///
-    /// **Layer 2 — SymSpell distance=1 + QWERTY spatial threshold**
-    /// Single unified `Verbosity::Closest` lookup at max distance=1.
-    /// If `best.distance == 0` the typed word exists in the 82k dictionary →
-    /// passthrough. If `best.distance == 1` we apply the QWERTY adjacency
-    /// frequency multiplier before deciding whether to correct.
+    /// **Layer 2 — SymSpell distance ≤ 2 + QWERTY distance scoring**
     pub fn check(&self, word: &str) -> Option<(String, f32)> {
         let word_lower = word.to_lowercase();
         let char_len = word_lower.chars().count();
 
         // ── Layer 0: Google-10k whitelist ──────────────────────────────────
-        // Common English words must never be auto-corrected, full stop.
         if google_10k().contains(word_lower.as_str()) {
             return None;
         }
 
         // ── Layer 1: Short-word gate ───────────────────────────────────────
-        if char_len <= 3 {
+        // Skip 1 and 2 letter tokens (e.g. a, in, is, on, to, at, it)
+        if char_len <= 2 {
             return None;
         }
 
-        // ── Layer 2: SymSpell distance=1 unified lookup ────────────────────
-        // Verbosity::Closest at max_distance=1:
-        //   • If word is in the dictionary  → best.distance == 0 → passthrough
-        //   • If word is a 1-edit typo      → best.distance == 1 → evaluate
-        //   • If word is completely unknown → empty vec            → passthrough
-        let suggestions = self.symspell.lookup(&word_lower, Verbosity::Closest, 1);
+        // ── Layer 2: SymSpell distance ≤ 2 unified lookup ─────────────────
+        let mut suggestions = self.symspell.lookup(&word_lower, Verbosity::Closest, 2);
         if suggestions.is_empty() {
             return None;
         }
 
+        // Sort suggestions so highest frequency and adjacent typos rank first
+        suggestions.sort_by(|a, b| {
+            if a.distance == b.distance {
+                let a_adjacent = is_qwerty_typo(&word_lower, &a.term);
+                let b_adjacent = is_qwerty_typo(&word_lower, &b.term);
+                if a_adjacent != b_adjacent {
+                    b_adjacent.cmp(&a_adjacent)
+                } else {
+                    b.count.cmp(&a.count)
+                }
+            } else {
+                a.distance.cmp(&b.distance)
+            }
+        });
+
         let best = &suggestions[0];
 
-        // Exact match in 82k dictionary → valid word → never replace
+        // Exact match in dictionary → valid word → never replace
         if best.distance == 0 {
             return None;
         }
 
-        // Require strictly distance == 1 (redundant given init, but explicit)
-        if best.distance != 1 {
+        if best.distance > 2 {
             return None;
         }
 
-        // Safety: skip if suggestion somehow equals typed word
+        // Safety: skip if suggestion equals typed word
         if best.term.eq_ignore_ascii_case(&word_lower) {
             return None;
         }
 
-        // QWERTY spatial frequency threshold
-        // Adjacent-key fat-finger typos need 2.5× the candidate's frequency to fire.
-        // Non-adjacent (wrong-letter) typos need 10.0× — far stricter.
+        // Calculate confidence score for distance 1 vs distance 2
         let is_adjacent = is_qwerty_typo(&word_lower, &best.term);
-        let freq_multiplier = if is_adjacent { 2.5f64 } else { 10.0f64 };
+        let base_confidence = match best.distance {
+            1 => if is_adjacent { 0.94f32 } else { 0.88f32 },
+            2 => 0.82f32,
+            _ => 0.70f32,
+        };
 
-        // Typed word is not in the 82k dict (distance != 0) so its baseline freq = 1
-        if (best.count as f64) < freq_multiplier {
-            return None;
-        }
-
-        // Confidence score 0.85–0.99
-        let base_confidence = if is_adjacent { 0.92f32 } else { 0.85f32 };
-        let freq_boost = ((best.count as f32).ln().max(0.0) / 25.0).min(0.07);
+        let freq_boost = ((best.count as f32).max(1.0).ln() / 25.0).min(0.08);
         let confidence = (base_confidence + freq_boost).min(0.99);
 
-        Some((best.term.clone(), confidence))
+        if confidence >= 0.72 {
+            Some((best.term.clone(), confidence))
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_distance_1_and_2_corrections() {
+        let engine = SymSpellEngine::new();
+
+        // Distance 1 test: "teh" -> "the"
+        let corr1 = engine.check("teh");
+        assert!(corr1.is_some(), "Expected correction for 'teh'");
+        let (suggested1, conf1) = corr1.unwrap();
+        assert_eq!(suggested1, "the");
+        assert!(conf1 >= 0.80);
+
+        // Distance 2 test: "woudl" -> "would"
+        let corr2 = engine.check("woudl");
+        assert!(corr2.is_some(), "Expected correction for 'woudl'");
+        let (suggested2, conf2) = corr2.unwrap();
+        assert_eq!(suggested2, "would");
+        assert!(conf2 >= 0.72);
+
+        // Distance 2 test: "recieve" -> "receive"
+        let corr3 = engine.check("recieve");
+        assert!(corr3.is_some(), "Expected correction for 'recieve'");
+        let (suggested3, _) = corr3.unwrap();
+        assert_eq!(suggested3, "receive");
+
+        // Valid word passthrough: "keyboard" -> None
+        assert!(engine.check("keyboard").is_none());
     }
 }
